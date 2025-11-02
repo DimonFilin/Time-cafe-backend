@@ -68,5 +68,42 @@ export class SystemService {
       timestamp: new Date().toISOString(),
     };
   }
+
+  async getMetrics() {
+    const memoryUsage = process.memoryUsage();
+    const uptime = process.uptime();
+
+    let databaseConnections = 0;
+    try {
+      const result = await this.prisma
+        .$queryRaw`SELECT count(*) as count FROM pg_stat_activity WHERE datname = current_database()`;
+      databaseConnections =
+        Array.isArray(result) && result[0] && typeof result[0] === 'object'
+          ? Number((result[0] as any).count)
+          : 0;
+    } catch (error) {
+      // If query fails, set to 0
+      databaseConnections = 0;
+    }
+
+    return {
+      uptime: Math.floor(uptime),
+      memory: {
+        heapUsed: memoryUsage.heapUsed,
+        heapTotal: memoryUsage.heapTotal,
+        rss: memoryUsage.rss,
+        external: memoryUsage.external,
+      },
+      database: {
+        activeConnections: databaseConnections,
+      },
+      requests: {
+        total: 0,
+        successful: 0,
+        errors: 0,
+      },
+      timestamp: new Date().toISOString(),
+    };
+  }
 }
 

@@ -68,5 +68,37 @@ export class SystemController {
   ping() {
     return this.systemService.ping();
   }
+
+  @Get('metrics')
+  @ApiOperation({
+    summary: 'Metrics endpoint',
+    description: 'Get system metrics including request counts, response times, memory usage, and database connections',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Metrics retrieved successfully',
+    schema: {
+      example: {
+        uptime: 3600,
+        memory: {
+          heapUsed: 45678912,
+          heapTotal: 67108864,
+          rss: 123456789,
+        },
+        database: {
+          activeConnections: 5,
+        },
+        requests: {
+          total: 1500,
+          successful: 1450,
+          errors: 50,
+        },
+        timestamp: '2025-11-02T11:31:22.542Z',
+      },
+    },
+  })
+  async metrics() {
+    return this.systemService.getMetrics();
+  }
 }
 
