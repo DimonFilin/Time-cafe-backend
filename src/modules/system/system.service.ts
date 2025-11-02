@@ -1,29 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-
-export interface HealthStatus {
-  status: 'healthy' | 'unhealthy';
-  timestamp: string;
-  checks: {
-    database: {
-      status: 'ok' | 'error';
-      message?: string;
-      responseTime?: number;
-    };
-    [key: string]: {
-      status: 'ok' | 'error';
-      message?: string;
-      responseTime?: number;
-    };
-  };
-}
+import { HealthCheckResponseDto } from './dto/health-check.response.dto';
+import { PingResponseDto } from './dto/ping.response.dto';
+import { MetricsResponseDto } from './dto/metrics.response.dto';
+import { MetricsService } from './metrics.service';
 
 @Injectable()
 export class SystemService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly metricsService: MetricsService,
+  ) {}
 
-  async healthCheck(): Promise<HealthStatus> {
-    const checks: HealthStatus['checks'] = {
+  async healthCheck(): Promise<HealthCheckResponseDto> {
+    const checks: HealthCheckResponseDto['checks'] = {
       database: await this.checkDatabase(),
     };
 
@@ -61,7 +51,7 @@ export class SystemService {
     }
   }
 
-  ping() {
+  ping(): PingResponseDto {
     return {
       status: 'ok',
       message: 'pong',
@@ -69,7 +59,7 @@ export class SystemService {
     };
   }
 
-  async getMetrics() {
+  async getMetrics(): Promise<MetricsResponseDto> {
     const memoryUsage = process.memoryUsage();
     const uptime = process.uptime();
 
@@ -97,11 +87,7 @@ export class SystemService {
       database: {
         activeConnections: databaseConnections,
       },
-      requests: {
-        total: 0,
-        successful: 0,
-        errors: 0,
-      },
+      requests: this.metricsService.getMetrics(),
       timestamp: new Date().toISOString(),
     };
   }
