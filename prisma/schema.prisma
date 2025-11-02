@@ -7,5 +7,151 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Models will be added here
+enum WorkerRole {
+  SYSTEM_ADMIN
+  BRAND_ADMIN
+  CAFE_ADMIN
+  WORKER
+}
 
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model WorkerAccount {
+  id        String    @id @default(uuid())
+  email     String    @unique
+  password  String
+  firstName String
+  lastName  String
+  role      WorkerRole
+  brandId   String?
+  brand     Brand?    @relation(fields: [brandId], references: [id])
+  cafeId    String?
+  cafe      Cafe?     @relation(fields: [cafeId], references: [id])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("worker_accounts")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  firstName String
+  lastName  String
+  phone     String?
+  avatar    String?
+  balance   Decimal  @default(0) @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders    Order[]
+  reviews   Review[]
+  bookings  Appointment[]
+
+  @@map("users")
+}
+
+model Brand {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  logo        String?
+  primaryColor String?  @default("#000000")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  cafes           Cafe[]
+  workerAccounts  WorkerAccount[]
+
+  @@map("brands")
+}
+
+model Region {
+  id        String   @id @default(uuid())
+  name      String
+  country   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cafes Cafe[]
+
+  @@map("regions")
+}
+
+model Cafe {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  address     String
+  city        String
+  street      String?
+  latitude    Float
+  longitude   Float
+  photos      String[]
+  rating      Float?    @default(0)
+  reviewsCount Int      @default(0)
+  brandId     String
+  brand       Brand     @relation(fields: [brandId], references: [id])
+  regionId    String
+  region      Region    @relation(fields: [regionId], references: [id])
+  cafeApiUrl  String?   // URL к локальному сервису кофейни
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workerAccounts WorkerAccount[]
+  orders        Order[]
+  reviews       Review[]
+  appointments  Appointment[]
+
+  @@map("cafes")
+}
+
+model Order {
+  id          String      @id @default(uuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  cafeId      String
+  cafe        Cafe        @relation(fields: [cafeId], references: [id])
+  status      OrderStatus @default(PENDING)
+  totalAmount Decimal     @db.Decimal(10, 2)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("orders")
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  cafeId    String
+  cafe      Cafe     @relation(fields: [cafeId], references: [id])
+  rating    Int      // 1-5
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("reviews")
+}
+
+model Appointment {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  cafeId    String
+  cafe      Cafe     @relation(fields: [cafeId], references: [id])
+  dateTime  DateTime
+  duration  Int      // в минутах
+  status    String   @default("pending") // pending, confirmed, cancelled, completed
+  qrCode    String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("appointments")
+}

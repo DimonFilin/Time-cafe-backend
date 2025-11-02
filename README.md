@@ -6,7 +6,7 @@
 
 - NestJS - Backend фреймворк
 - Next.js - Frontend фреймворк
-- TypeORM - ORM для работы с БД
+- Prisma - ORM для работы с БД
 - PostgreSQL - База данных
 - Swagger - Документация API
 
@@ -49,6 +49,22 @@ npm run start:frontend
 ```bash
 npm run build
 npm run start:prod
+```
+
+## Prisma команды
+
+```bash
+# Генерация Prisma Client
+npm run prisma:generate
+
+# Создание миграции
+npm run prisma:migrate
+
+# Prisma Studio (GUI для БД)
+npm run prisma:studio
+
+# Применение миграций в production
+npm run prisma:deploy
 ```
 
 ## API Документация
