@@ -60,5 +60,13 @@ export class SystemService {
       };
     }
   }
+
+  ping() {
+    return {
+      status: 'ok',
+      message: 'pong',
+      timestamp: new Date().toISOString(),
+    };
+  }
 }
 
