@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Public } from 'nest-keycloak-connect';
 import { SystemService } from './system.service';
 import { HealthCheckResponseDto } from './dto/health-check.response.dto';
 import { PingResponseDto } from './dto/ping.response.dto';
@@ -11,9 +12,11 @@ export class SystemController {
   constructor(private readonly systemService: SystemService) {}
 
   @Get('health-check')
+  @Public()
   @ApiOperation({
     summary: 'Health check endpoint',
-    description: 'Check the health status of the service and all dependencies (database, etc.)',
+    description:
+      'Check the health status of the service and all dependencies (database, etc.)',
   })
   @ApiResponse({
     status: 200,
@@ -30,9 +33,11 @@ export class SystemController {
   }
 
   @Get('ping')
+  @Public()
   @ApiOperation({
     summary: 'Ping endpoint',
-    description: 'Simple ping to check if server is responding. No database checks.',
+    description:
+      'Simple ping to check if server is responding. No database checks.',
   })
   @ApiResponse({
     status: 200,
@@ -44,9 +49,11 @@ export class SystemController {
   }
 
   @Get('metrics')
+  @Public()
   @ApiOperation({
     summary: 'Metrics endpoint',
-    description: 'Get system metrics including request counts, response times, memory usage, and database connections',
+    description:
+      'Get system metrics including request counts, response times, memory usage, and database connections',
   })
   @ApiResponse({
     status: 200,

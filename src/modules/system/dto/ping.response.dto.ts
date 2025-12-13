@@ -20,4 +20,3 @@ export class PingResponseDto {
   })
   timestamp: string;
 }
-

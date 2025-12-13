@@ -18,4 +18,3 @@ import { MetricsInterceptor } from './interceptors/metrics.interceptor';
   exports: [MetricsService],
 })
 export class SystemModule {}
-

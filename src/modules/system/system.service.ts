@@ -65,13 +65,14 @@ export class SystemService {
 
     let databaseConnections = 0;
     try {
-      const result = await this.prisma
-        .$queryRaw`SELECT count(*) as count FROM pg_stat_activity WHERE datname = current_database()`;
+      const result = await this.prisma.$queryRaw<
+        Array<{ count: bigint }>
+      >`SELECT count(*) as count FROM pg_stat_activity WHERE datname = current_database()`;
       databaseConnections =
         Array.isArray(result) && result[0] && typeof result[0] === 'object'
-          ? Number((result[0] as any).count)
+          ? Number(result[0].count)
           : 0;
-    } catch (error) {
+    } catch {
       // If query fails, set to 0
       databaseConnections = 0;
     }
@@ -92,4 +93,3 @@ export class SystemService {
     };
   }
 }
-

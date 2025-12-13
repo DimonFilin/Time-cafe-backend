@@ -44,4 +44,3 @@ export class MetricsService {
     this.responseTimes = [];
   }
 }
-

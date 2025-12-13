@@ -13,10 +13,10 @@ export class MetricsInterceptor implements NestInterceptor {
   constructor(private readonly metricsService: MetricsService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-    const request = context.switchToHttp().getRequest();
+    const request = context.switchToHttp().getRequest<{ url: string }>();
     const url = request.url;
 
-    if (url.startsWith('/system/metrics')) {
+    if (url?.startsWith('/system/metrics')) {
       return next.handle();
     }
 
@@ -36,4 +36,3 @@ export class MetricsInterceptor implements NestInterceptor {
     );
   }
 }
-

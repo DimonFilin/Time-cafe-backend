@@ -24,7 +24,9 @@ async function bootstrap() {
 
   const config = new DocumentBuilder()
     .setTitle('Time Cafe Shared API')
-    .setDescription('API for Time Cafe shared service. Complete API documentation with examples.')
+    .setDescription(
+      'API for Time Cafe shared service. Complete API documentation with examples.',
+    )
     .setVersion('1.0')
     .addBearerAuth(
       {
@@ -40,6 +42,7 @@ async function bootstrap() {
     .addServer('http://localhost:3000', 'Development server')
     .addTag('System', 'System endpoints for health checks and monitoring')
     .addTag('Auth', 'Authentication endpoints')
+    .addTag('Auth Test', 'Keycloak integration test endpoints')
     .addTag('Users', 'User management endpoints')
     .addTag('Brands', 'Brand management endpoints')
     .addTag('Cafes', 'Cafe management endpoints')
@@ -53,4 +56,4 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`Shared service running on port ${port}`);
 }
-bootstrap();
+void bootstrap();

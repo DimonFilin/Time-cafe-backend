@@ -7,7 +7,10 @@ class MemoryMetricsDto {
   @ApiProperty({ example: 67108864, description: 'Total heap memory in bytes' })
   heapTotal: number;
 
-  @ApiProperty({ example: 123456789, description: 'Resident set size in bytes' })
+  @ApiProperty({
+    example: 123456789,
+    description: 'Resident set size in bytes',
+  })
   rss: number;
 
   @ApiProperty({
@@ -73,4 +76,3 @@ export class MetricsResponseDto {
   })
   timestamp: string;
 }
-
