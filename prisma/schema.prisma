@@ -21,6 +21,19 @@ enum OrderStatus {
   COMPLETED
 }
 
+enum TransactionType {
+  PAYMENT       // Платеж картой
+  REFUND        // Возврат средств
+}
+
+enum TransactionStatus {
+  PENDING       // Ожидает обработки
+  PROCESSING    // В процессе
+  COMPLETED     // Успешно завершена
+  FAILED        // Ошибка
+  CANCELLED     // Отменена
+}
+
 model WorkerAccount {
   id          String    @id @default(uuid())
   keycloakId  String
@@ -52,9 +65,11 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  orders    Order[]
-  reviews   Review[]
-  bookings  Appointment[]
+  orders       Order[]
+  reviews      Review[]
+  bookings     Appointment[]
+  paymentCards PaymentCard[]
+  transactions Transaction[]
 
   @@map("users")
 }
@@ -125,6 +140,8 @@ model Order {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
+  transactions Transaction[]
+
   @@map("orders")
 }
 
@@ -156,4 +173,61 @@ model Appointment {
   updatedAt DateTime @updatedAt
 
   @@map("appointments")
+}
+
+model PaymentCard {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  
+  last4Digits   String   // Последние 4 цифры (например, "1234")
+  cardType      String   // "visa", "mastercard", "mir"
+  expiryMonth   Int      // Месяц истечения (1-12)
+  expiryYear    Int      // Год истечения
+  
+  providerToken String?  // Токен для повторных платежей (симуляция Stripe токена)
+  
+  isDefault     Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  holderName    String?  // Имя держателя карты
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime? // Soft delete для карт
+
+  transactions  Transaction[]
+
+  @@index([userId, deletedAt])
+  @@map("payment_cards")
+}
+
+model Transaction {
+  id                    String            @id @default(uuid())
+  userId                String
+  user                  User              @relation(fields: [userId], references: [id])
+  
+  type                  TransactionType
+  status                TransactionStatus @default(PENDING)
+  
+  amount                Decimal           @db.Decimal(10, 2)
+  currency              String            @default("RUB")
+  
+  orderId               String?           // Если транзакция связана с заказом
+  order                 Order?            @relation(fields: [orderId], references: [id])
+  cardId                String?           // Если использовалась карта
+  card                  PaymentCard?      @relation(fields: [cardId], references: [id])
+  
+  provider              String?           // "stripe" (симуляция)
+  providerTransactionId String?           // ID транзакции в системе провайдера (симуляция)
+  
+  description           String?           // Описание транзакции
+  metadata              Json?             // Дополнительные данные (JSON)
+  
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([orderId])
+  @@map("transactions")
 }

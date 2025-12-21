@@ -303,6 +303,132 @@ Swagger документация API
 - balance, createdAt, updatedAt
 - Связи с заказами, отзывами, бронированиями
 
+## Платежи и карты
+
+### `GET /users/cards`
+
+Получение списка карт пользователя
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Ответ (200)**: `[{ id, last4Digits, cardType, expiryMonth, expiryYear, isDefault, isActive, holderName?, createdAt }]`
+- **Ошибки**: 401 (не авторизован)
+
+### `POST /users/cards`
+
+Добавление новой карты
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Тело запроса**:
+  ```json
+  {
+    "cardNumber": "4242424242424242",
+    "expiryMonth": 12,
+    "expiryYear": 2025,
+    "cvv": "123",
+    "holderName": "John Doe" // опционально
+  }
+  ```
+- **Ответ (201)**: `{ id, last4Digits, cardType, expiryMonth, expiryYear, isDefault, isActive, holderName?, createdAt }`
+- **Ошибки**: 400 (валидация, истекшая карта), 401 (не авторизован)
+
+**Логика**:
+
+1. Валидация данных карты (формат, срок действия)
+2. Определение типа карты (visa, mastercard, mir)
+3. Генерация симулированного токена провайдера
+4. Сохранение только последних 4 цифр и метаданных
+5. Первая карта автоматически становится картой по умолчанию
+
+### `DELETE /users/cards/:id`
+
+Удаление карты (soft delete)
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Ответ (200)**: `{ message: "Card deleted successfully" }`
+- **Ошибки**: 401 (не авторизован), 404 (карта не найдена)
+
+### `PATCH /users/cards/:id/set-default`
+
+Установка карты по умолчанию
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Ответ (200)**: `{ id, last4Digits, cardType, ... }`
+- **Ошибки**: 401 (не авторизован), 404 (карта не найдена)
+
+### `POST /users/payments`
+
+Создание платежа с карты
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Тело запроса**:
+  ```json
+  {
+    "cardId": "550e8400-e29b-41d4-a716-446655440000",
+    "amount": 1000.0,
+    "orderId": "550e8400-e29b-41d4-a716-446655440001", // опционально
+    "description": "Payment for order #123" // опционально
+  }
+  ```
+- **Ответ (201)**: `{ id, type: "PAYMENT", status: "COMPLETED", amount, currency, cardId, orderId?, description?, createdAt }`
+- **Ошибки**: 400 (неверная сумма), 401 (не авторизован), 404 (карта не найдена)
+
+**Логика**:
+
+1. Проверка существования и активности карты
+2. Создание транзакции со статусом PENDING
+3. Симуляция обработки платежа (500ms)
+4. Обновление статуса: PENDING → PROCESSING → COMPLETED
+5. Генерация providerTransactionId (симуляция Stripe)
+
+### `GET /users/transactions`
+
+История транзакций
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Query параметры**:
+  - `limit` (опционально, по умолчанию 50) - количество транзакций
+  - `offset` (опционально, по умолчанию 0) - смещение для пагинации
+- **Ответ (200)**: `[{ id, type, status, amount, currency, cardId?, orderId?, description?, createdAt }]`
+- **Ошибки**: 401 (не авторизован)
+
+### `GET /users/transactions/:id`
+
+Детали транзакции
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Ответ (200)**: `{ id, type, status, amount, currency, cardId?, orderId?, description?, provider?, providerTransactionId?, createdAt }`
+- **Ошибки**: 401 (не авторизован), 404 (транзакция не найдена)
+
+### `POST /users/transactions/:id/refund`
+
+Создание возврата
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Тело запроса**:
+  ```json
+  {
+    "amount": 500.0, // опционально, по умолчанию полный возврат
+    "description": "Partial refund" // опционально
+  }
+  ```
+- **Ответ (201)**: `{ id, type: "REFUND", status: "COMPLETED", amount: "-500", ... }`
+- **Ошибки**: 400 (сумма превышает оригинал), 401 (не авторизован), 404 (транзакция не найдена)
+
+**Логика**:
+
+1. Проверка, что оригинальная транзакция завершена
+2. Проверка суммы возврата (не больше оригинала)
+3. Создание транзакции типа REFUND
+4. Автоматическая обработка возврата
+
 ## Валидация
 
 Все эндпоинты используют ValidationPipe с:
@@ -318,3 +444,11 @@ Swagger документация API
 - `firstName`: строка (обязательно)
 - `lastName`: строка (обязательно)
 - `phone`: строка (опционально)
+
+### Правила валидации AddCardDto:
+
+- `cardNumber`: ровно 16 цифр
+- `expiryMonth`: число от 1 до 12
+- `expiryYear`: текущий или будущий год
+- `cvv`: ровно 3 цифры
+- `holderName`: строка (опционально)
