@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Patch,
+  Delete,
   Body,
   HttpCode,
   HttpStatus,
@@ -179,5 +180,36 @@ export class AuthController {
       dto.newPassword,
     );
     return { message: 'Password changed successfully' };
+  }
+
+  @Delete('me')
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete current user account',
+    description:
+      'Soft deletes the user account (deletes from Keycloak, marks as deleted in database)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'User account deleted successfully',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User not found',
+  })
+  async deleteAccount(
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<{ message: string }> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+    await this.authService.deleteAccount(keycloakId);
+    return { message: 'User account deleted successfully' };
   }
 }

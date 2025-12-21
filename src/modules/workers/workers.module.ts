@@ -5,9 +5,10 @@ import { WorkersController } from './workers.controller';
 import { KeycloakModule } from '../auth/keycloak.module';
 import { KeycloakService } from '../auth/services/keycloak.service';
 import { UsersModule } from '../users/users.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [KeycloakModule, HttpModule, UsersModule],
+  imports: [KeycloakModule, HttpModule, UsersModule, AuthModule],
   controllers: [WorkersController],
   providers: [WorkersService, KeycloakService],
   exports: [WorkersService],

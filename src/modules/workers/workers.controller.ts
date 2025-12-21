@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Patch,
+  Delete,
   Body,
   HttpCode,
   HttpStatus,
@@ -18,6 +19,7 @@ import {
 } from '@nestjs/swagger';
 import { Public } from 'nest-keycloak-connect';
 import { WorkersService } from './workers.service';
+import { KeycloakService } from '../auth/services/keycloak.service';
 import { RegisterWorkerDto } from './dto/register-worker.dto';
 import { UpdateWorkerDto } from './dto/update-worker.dto';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto';
@@ -26,7 +28,10 @@ import { WorkerProfileDto } from './dto/worker-profile.dto';
 @ApiTags('Workers')
 @Controller('auth/workers')
 export class WorkersController {
-  constructor(private readonly workersService: WorkersService) {}
+  constructor(
+    private readonly workersService: WorkersService,
+    private readonly keycloakService: KeycloakService,
+  ) {}
 
   @Post()
   @Public()
@@ -142,5 +147,44 @@ export class WorkersController {
       cafeId: updated.cafeId ?? undefined,
       createdAt: updated.createdAt,
     };
+  }
+
+  @Delete('me')
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete current worker account',
+    description:
+      'Soft deletes the worker account (deletes from Keycloak, marks as deleted in database)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Worker account deleted successfully',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Worker account not found',
+  })
+  async deleteAccount(
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<{ message: string }> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    if (!worker) {
+      throw new NotFoundException('Worker account not found');
+    }
+
+    await this.keycloakService.deleteUser(keycloakId);
+    await this.workersService.softDelete(worker.id);
+
+    return { message: 'Worker account deleted successfully' };
   }
 }

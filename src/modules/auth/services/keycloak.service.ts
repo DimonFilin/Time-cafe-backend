@@ -399,6 +399,30 @@ export class KeycloakService {
     }
   }
 
+  async deleteUser(keycloakId: string): Promise<void> {
+    const token = await this.getAdminToken();
+
+    try {
+      await firstValueFrom(
+        this.httpService.delete(
+          `${this.keycloakUrl}/admin/realms/${this.realm}/users/${keycloakId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        ),
+      );
+      this.logger.log(`User ${keycloakId} deleted from Keycloak`);
+    } catch (error: unknown) {
+      this.logger.error(
+        `Failed to delete user ${keycloakId} from Keycloak`,
+        error,
+      );
+      throw new UnauthorizedException('Failed to delete user from Keycloak');
+    }
+  }
+
   private decodeToken(token: string): {
     sub?: string;
     realm_access?: { roles?: string[] };

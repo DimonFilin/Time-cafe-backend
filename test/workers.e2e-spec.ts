@@ -34,11 +34,14 @@ describe('Workers Endpoints (e2e)', () => {
     if (prisma) {
       for (const email of testWorkers) {
         try {
-          const worker = await prisma.workerAccount.findUnique({
-            where: { email },
+          const worker = await prisma.workerAccount.findFirst({
+            where: { email, deletedAt: null },
           });
           if (worker) {
-            await prisma.workerAccount.delete({ where: { id: worker.id } });
+            await prisma.workerAccount.update({
+              where: { id: worker.id },
+              data: { deletedAt: new Date() },
+            });
           }
         } catch {
           // Ignore cleanup errors

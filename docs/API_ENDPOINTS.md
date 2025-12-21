@@ -146,6 +146,21 @@
 2. Обновление пароля в Keycloak через Admin API
 3. Возврат успешного ответа
 
+#### `DELETE /auth/me`
+
+Удаление аккаунта пользователя (soft delete)
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Ответ (200)**: `{ message: "User account deleted successfully" }`
+- **Ошибки**: 401 (не авторизован), 404 (пользователь не найден)
+
+**Логика**:
+
+1. Удаление пользователя из Keycloak (полное удаление)
+2. Soft delete в Prisma (установка `deletedAt`)
+3. После удаления можно создать нового пользователя с тем же email
+
 ### WorkerAccount (работники)
 
 #### `POST /auth/workers`
@@ -205,6 +220,21 @@
   ```
 - **Ответ (200)**: `{ id, email, firstName, lastName, role, brandId?, cafeId?, createdAt }`
 - **Ошибки**: 401 (не авторизован), 404 (аккаунт работника не найден)
+
+#### `DELETE /auth/workers/me`
+
+Удаление аккаунта работника (soft delete)
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Ответ (200)**: `{ message: "Worker account deleted successfully" }`
+- **Ошибки**: 401 (не авторизован), 404 (аккаунт работника не найден)
+
+**Логика**:
+
+1. Удаление работника из Keycloak (полное удаление)
+2. Soft delete в Prisma (установка `deletedAt`)
+3. После удаления можно создать нового работника с тем же email
 
 ### Webhook
 

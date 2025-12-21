@@ -273,10 +273,20 @@
 
 ### Управление пользователями
 
-- [ ] CRUD операции для пользователей
-- [ ] Профиль пользователя (просмотр, редактирование)
+- [x] CRUD операции для пользователей - **ЗАВЕРШЕНО**
+  - ✅ Create: `POST /auth/register` (User), `POST /auth/workers` (WorkerAccount)
+  - ✅ Read: `GET /auth/me` (User), `GET /auth/workers/me` (WorkerAccount)
+  - ✅ Update: `PATCH /auth/me` (User), `PATCH /auth/workers/me` (WorkerAccount)
+  - ✅ Delete: `DELETE /auth/me` (User), `DELETE /auth/workers/me` (WorkerAccount) - soft delete
+- [x] Профиль пользователя (просмотр, редактирование) - **ЗАВЕРШЕНО**
+  - ✅ `GET /auth/me` - просмотр профиля
+  - ✅ `PATCH /auth/me` - редактирование профиля (firstName, lastName, phone, avatar)
 - [ ] Управление балансом и картами
+  - Баланс есть в модели User, но нет эндпоинтов для пополнения/списания
+  - Карты не реализованы (нет модели и эндпоинтов)
 - [ ] История транзакций
+  - Нет модели Transaction
+  - Нет эндпоинтов для просмотра истории
 
 ### Управление брендами
 

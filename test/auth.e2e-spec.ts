@@ -33,11 +33,14 @@ describe('Auth Endpoints (e2e)', () => {
     if (prisma) {
       for (const email of testUsers) {
         try {
-          const user = await prisma.user.findUnique({
-            where: { email },
+          const user = await prisma.user.findFirst({
+            where: { email, deletedAt: null },
           });
           if (user) {
-            await prisma.user.delete({ where: { id: user.id } });
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { deletedAt: new Date() },
+            });
           }
         } catch {
           // Ignore cleanup errors
@@ -535,6 +538,95 @@ describe('Auth Endpoints (e2e)', () => {
           newPassword: 'short',
         })
         .expect(400);
+    });
+  });
+
+  describe('DELETE /auth/me', () => {
+    it('should soft delete user account', async () => {
+      const email = `test-delete-${Date.now()}-${Math.random().toString(36).substring(7)}@example.com`;
+      testUsers.push(email);
+
+      const registerResponse = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/register')
+        .send({
+          email,
+          password: 'TestPassword123!',
+          firstName: 'Test',
+          lastName: 'User',
+        })
+        .expect(201);
+
+      const token = (registerResponse.body as AuthResponse).accessToken;
+
+      await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .delete('/auth/me')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(401);
+    });
+
+    it('should allow registering with same email after deletion', async () => {
+      const email = `test-reuse-${Date.now()}-${Math.random().toString(36).substring(7)}@example.com`;
+      testUsers.push(email);
+
+      const registerResponse1 = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/register')
+        .send({
+          email,
+          password: 'TestPassword123!',
+          firstName: 'Test',
+          lastName: 'User',
+        })
+        .expect(201);
+
+      const token1 = (registerResponse1.body as AuthResponse).accessToken;
+
+      await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .delete('/auth/me')
+        .set('Authorization', `Bearer ${token1}`)
+        .expect(200);
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      const registerResponse2 = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/register')
+        .send({
+          email,
+          password: 'NewPassword123!',
+          firstName: 'New',
+          lastName: 'User',
+        })
+        .expect(201);
+
+      expect(registerResponse2.body).toHaveProperty('accessToken');
+      expect((registerResponse2.body as AuthResponse).user).toHaveProperty(
+        'email',
+        email,
+      );
+    });
+
+    it('should return 401 without token', () => {
+      return request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .delete('/auth/me')
+        .expect(401);
     });
   });
 });

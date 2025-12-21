@@ -62,8 +62,9 @@ Infrastructure (KeycloakModule, PrismaModule)
 **User:**
 
 - `POST /auth/register` - регистрация
-- `GET /auth/me` - профиль (TODO)
-- `PATCH /auth/me` - обновление профиля (TODO)
+- `GET /auth/me` - просмотр профиля ✅
+- `PATCH /auth/me` - обновление профиля ✅
+- `POST /auth/change-password` - смена пароля ✅
 
 **WorkerAccount:**
 

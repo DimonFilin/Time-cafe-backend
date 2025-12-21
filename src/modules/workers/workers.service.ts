@@ -30,20 +30,29 @@ export class WorkersService {
   ) {}
 
   async findByKeycloakId(keycloakId: string): Promise<WorkerAccount | null> {
-    return this.prisma.workerAccount.findUnique({
-      where: { keycloakId },
+    return this.prisma.workerAccount.findFirst({
+      where: {
+        keycloakId,
+        deletedAt: null,
+      },
     });
   }
 
   async findByEmail(email: string): Promise<WorkerAccount | null> {
-    return this.prisma.workerAccount.findUnique({
-      where: { email },
+    return this.prisma.workerAccount.findFirst({
+      where: {
+        email,
+        deletedAt: null,
+      },
     });
   }
 
   async findById(id: string): Promise<WorkerAccount | null> {
-    return this.prisma.workerAccount.findUnique({
-      where: { id },
+    return this.prisma.workerAccount.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+      },
     });
   }
 
@@ -107,6 +116,13 @@ export class WorkersService {
     return this.prisma.workerAccount.update({
       where: { id: workerId },
       data,
+    });
+  }
+
+  async softDelete(workerId: string): Promise<WorkerAccount> {
+    return this.prisma.workerAccount.update({
+      where: { id: workerId },
+      data: { deletedAt: new Date() },
     });
   }
 

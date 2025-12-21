@@ -7,14 +7,20 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findByKeycloakId(keycloakId: string): Promise<User | null> {
-    return this.prisma.user.findUnique({
-      where: { keycloakId },
+    return this.prisma.user.findFirst({
+      where: {
+        keycloakId,
+        deletedAt: null,
+      },
     });
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.prisma.user.findUnique({
-      where: { email },
+    return this.prisma.user.findFirst({
+      where: {
+        email,
+        deletedAt: null,
+      },
     });
   }
 
@@ -75,6 +81,13 @@ export class UsersService {
     return this.prisma.user.update({
       where: { id: userId },
       data,
+    });
+  }
+
+  async softDelete(userId: string): Promise<User> {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { deletedAt: new Date() },
     });
   }
 }

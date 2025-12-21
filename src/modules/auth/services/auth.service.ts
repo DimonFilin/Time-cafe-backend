@@ -230,6 +230,16 @@ export class AuthService {
     );
   }
 
+  async deleteAccount(keycloakId: string): Promise<void> {
+    const user = await this.usersService.findByKeycloakId(keycloakId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    await this.keycloakService.deleteUser(keycloakId);
+    await this.usersService.softDelete(user.id);
+  }
+
   private decodeToken(
     token: string,
   ): { sub?: string; [key: string]: unknown } | null {
