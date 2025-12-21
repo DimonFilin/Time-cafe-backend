@@ -13,6 +13,11 @@ import { UsersModule } from '../users/users.module';
   imports: [KeycloakModule, HttpModule, UsersModule],
   controllers: [AuthController, AuthTestController, KeycloakWebhookController],
   providers: [KeycloakService, AuthService, KeycloakWebhookService],
-  exports: [KeycloakModule, AuthService, KeycloakWebhookService],
+  exports: [
+    KeycloakModule,
+    KeycloakService,
+    AuthService,
+    KeycloakWebhookService,
+  ],
 })
 export class AuthModule {}

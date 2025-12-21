@@ -357,6 +357,48 @@ export class KeycloakService {
     }
   }
 
+  async resetPassword(
+    keycloakId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.getUserByKeycloakId(keycloakId);
+    if (!user) {
+      throw new UnauthorizedException('User not found in Keycloak');
+    }
+
+    try {
+      await this.validateCredentials(user.email, currentPassword);
+    } catch {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const token = await this.getAdminToken();
+
+    try {
+      await firstValueFrom(
+        this.httpService.put(
+          `${this.keycloakUrl}/admin/realms/${this.realm}/users/${keycloakId}/reset-password`,
+          {
+            type: 'password',
+            value: newPassword,
+            temporary: false,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+      );
+      this.logger.log(`Password reset for user ${keycloakId}`);
+    } catch (error: unknown) {
+      this.logger.error('Failed to reset password in Keycloak', error);
+      throw new UnauthorizedException('Failed to reset password');
+    }
+  }
+
   private decodeToken(token: string): {
     sub?: string;
     realm_access?: { roles?: string[] };

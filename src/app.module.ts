@@ -5,6 +5,7 @@ import { ConfigModule } from './config/config.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
+import { WorkersModule } from './modules/workers/workers.module';
 import { BrandsModule } from './modules/brands/brands.module';
 import { CafesModule } from './modules/cafes/cafes.module';
 import { SystemAdminModule } from './modules/system-admin/system-admin.module';
@@ -17,6 +18,7 @@ import { SystemModule } from './modules/system/system.module';
     PrismaModule,
     AuthModule,
     UsersModule,
+    WorkersModule,
     BrandsModule,
     CafesModule,
     SystemAdminModule,

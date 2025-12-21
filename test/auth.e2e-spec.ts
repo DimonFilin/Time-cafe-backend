@@ -296,6 +296,247 @@ describe('Auth Endpoints (e2e)', () => {
         .expect(401);
     });
   });
+
+  describe('GET /auth/me', () => {
+    it('should return user profile with valid token', async () => {
+      const email = `test-profile-${Date.now()}-${Math.random().toString(36).substring(7)}@example.com`;
+      testUsers.push(email);
+
+      const registerResponse = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/register')
+        .send({
+          email,
+          password: 'TestPassword123!',
+          firstName: 'Test',
+          lastName: 'User',
+        })
+        .expect(201);
+
+      const token = (registerResponse.body as AuthResponse).accessToken;
+
+      const response = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty('id');
+      expect(response.body).toHaveProperty('email', email);
+      expect(response.body).toHaveProperty('firstName', 'Test');
+      expect(response.body).toHaveProperty('lastName', 'User');
+    });
+
+    it('should return 401 without token', () => {
+      return request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .get('/auth/me')
+        .expect(401);
+    });
+
+    it('should return 401 with invalid token', () => {
+      return request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .get('/auth/me')
+        .set('Authorization', 'Bearer invalid-token')
+        .expect(401);
+    });
+  });
+
+  describe('PATCH /auth/me', () => {
+    it('should update user profile with valid token', async () => {
+      const email = `test-update-${Date.now()}-${Math.random().toString(36).substring(7)}@example.com`;
+      testUsers.push(email);
+
+      const registerResponse = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/register')
+        .send({
+          email,
+          password: 'TestPassword123!',
+          firstName: 'Test',
+          lastName: 'User',
+        })
+        .expect(201);
+
+      const token = (registerResponse.body as AuthResponse).accessToken;
+
+      const response = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          firstName: 'Updated',
+          lastName: 'Name',
+          phone: '+1234567890',
+        })
+        .expect(200);
+
+      expect(response.body).toHaveProperty('firstName', 'Updated');
+      expect(response.body).toHaveProperty('lastName', 'Name');
+      expect(response.body).toHaveProperty('phone', '+1234567890');
+    });
+
+    it('should return 401 without token', () => {
+      return request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .patch('/auth/me')
+        .send({ firstName: 'Test' })
+        .expect(401);
+    });
+
+    it('should validate input data', async () => {
+      const email = `test-update-validate-${Date.now()}-${Math.random().toString(36).substring(7)}@example.com`;
+      testUsers.push(email);
+
+      const registerResponse = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/register')
+        .send({
+          email,
+          password: 'TestPassword123!',
+          firstName: 'Test',
+          lastName: 'User',
+        })
+        .expect(201);
+
+      const token = (registerResponse.body as AuthResponse).accessToken;
+
+      await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          firstName: 123,
+        })
+        .expect(400);
+    });
+  });
+
+  describe('POST /auth/change-password', () => {
+    it('should change password with valid current password', async () => {
+      const email = `test-password-${Date.now()}-${Math.random().toString(36).substring(7)}@example.com`;
+      testUsers.push(email);
+      const oldPassword = 'OldPassword123!';
+      const newPassword = 'NewPassword123!';
+
+      const registerResponse = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/register')
+        .send({
+          email,
+          password: oldPassword,
+          firstName: 'Test',
+          lastName: 'User',
+        })
+        .expect(201);
+
+      const token = (registerResponse.body as AuthResponse).accessToken;
+
+      await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/change-password')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          currentPassword: oldPassword,
+          newPassword: newPassword,
+        })
+        .expect(200);
+
+      await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/login')
+        .send({
+          email,
+          password: newPassword,
+        })
+        .expect(200);
+    });
+
+    it('should return 401 with incorrect current password', async () => {
+      const email = `test-password-wrong-${Date.now()}-${Math.random().toString(36).substring(7)}@example.com`;
+      testUsers.push(email);
+
+      const registerResponse = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/register')
+        .send({
+          email,
+          password: 'OldPassword123!',
+          firstName: 'Test',
+          lastName: 'User',
+        })
+        .expect(201);
+
+      const token = (registerResponse.body as AuthResponse).accessToken;
+
+      await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/change-password')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          currentPassword: 'WrongPassword123!',
+          newPassword: 'NewPassword123!',
+        })
+        .expect(401);
+    });
+
+    it('should return 401 without token', () => {
+      return request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/change-password')
+        .send({
+          currentPassword: 'OldPassword123!',
+          newPassword: 'NewPassword123!',
+        })
+        .expect(401);
+    });
+
+    it('should validate new password length', async () => {
+      const email = `test-password-validate-${Date.now()}-${Math.random().toString(36).substring(7)}@example.com`;
+      testUsers.push(email);
+
+      const registerResponse = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/register')
+        .send({
+          email,
+          password: 'OldPassword123!',
+          firstName: 'Test',
+          lastName: 'User',
+        })
+        .expect(201);
+
+      const token = (registerResponse.body as AuthResponse).accessToken;
+
+      await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/change-password')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          currentPassword: 'OldPassword123!',
+          newPassword: 'short',
+        })
+        .expect(400);
+    });
+  });
 });
 
 interface AuthResponse {

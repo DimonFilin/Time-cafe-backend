@@ -2,7 +2,13 @@
 
 ## Текущий этап разработки
 
-**Аутентификация и авторизация через Keycloak**
+**Аутентификация и авторизация через Keycloak - ЗАВЕРШЕНО ✅**
+
+Базовая функциональность аутентификации и авторизации полностью реализована:
+
+- Разделение User и WorkerAccount с отдельными эндпоинтами
+- Регистрация, логин, обновление токенов для обоих типов аккаунтов
+- Правильная архитектура без циклических зависимостей
 
 ## Что реализовано ✅
 
@@ -55,19 +61,28 @@
 
 - ✅ Интеграция с Keycloak (KeycloakService, KeycloakModule)
 - ✅ Регистрация пользователей (`POST /auth/register`)
-- ✅ Авторизация через Keycloak (`POST /auth/login`)
-- ✅ Обновление токенов (`POST /auth/refresh`)
+- ✅ Регистрация работников (`POST /auth/workers`)
+- ✅ Авторизация через Keycloak (`POST /auth/login`) - общая для User и WorkerAccount
+- ✅ Обновление токенов (`POST /auth/refresh`) - общее для всех типов аккаунтов
 - ✅ Разделение данных: Keycloak хранит только email/password, Prisma - бизнес-данные
+- ✅ Разделение эндпоинтов: User и WorkerAccount имеют отдельные эндпоинты регистрации
+- ✅ Правильная архитектура: устранены циклические зависимости между модулями
 - ✅ Webhook сервис для синхронизации данных из Keycloak (`POST /auth/webhook/keycloak`)
-- ✅ E2E тесты для всех эндпоинтов авторизации (9 тестов, все проходят)
-- ✅ DTOs для валидации (RegisterDto, LoginDto, RefreshTokenDto, AuthResponseDto, UserProfileDto)
+- ✅ E2E тесты для всех эндпоинтов авторизации (26 тестов, все проходят)
+- ✅ DTOs для валидации:
+  - User: RegisterDto, LoginDto, RefreshTokenDto, AuthResponseDto, UserProfileDto
+  - WorkerAccount: RegisterWorkerDto, UpdateWorkerDto, WorkerProfileDto
 - ✅ ValidationPipe настроен глобально и в тестах
+- ✅ WorkersModule с полной функциональностью для работников
 
 ### Тестирование
 
-- ✅ E2E тесты для системных эндпоинтов
-- ✅ E2E тесты для Keycloak интеграции
-- ✅ E2E тесты для авторизации (register, login, refresh)
+- ✅ E2E тесты для системных эндпоинтов (3 теста)
+- ✅ E2E тесты для Keycloak интеграции (3 теста)
+- ✅ E2E тесты для авторизации User (9 тестов: register, login, refresh)
+- ✅ E2E тесты для авторизации WorkerAccount (10 тестов: register с разными ролями, login, валидация)
+- ✅ E2E тесты для профиля User (10 тестов: get profile, update profile, change password)
+- ✅ Всего: 36 тестов, все проходят
 - ✅ Pre-commit hooks с Husky и lint-staged
 
 ## Реализованные эндпоинты 📡
@@ -90,6 +105,8 @@
 
 ### Эндпоинты аутентификации (`/auth`)
 
+#### User (клиенты)
+
 - **`POST /auth/register`** - Регистрация нового пользователя
   - Создает пользователя в Keycloak (email, password)
   - Создает запись в Prisma (keycloakId, email, firstName, lastName, phone)
@@ -97,17 +114,63 @@
   - Валидация: email (формат), password (мин. 8 символов), firstName, lastName
   - Ошибки: 400 (валидация), 409 (пользователь уже существует)
   - Публичный доступ
-- **`POST /auth/login`** - Авторизация пользователя
+
+- **`POST /auth/login`** - Авторизация (общая для User и WorkerAccount)
   - Проверяет credentials в Keycloak
+  - Определяет тип аккаунта (User или WorkerAccount) по наличию в Prisma
   - Создает/обновляет запись в Prisma по keycloakId
   - Возвращает accessToken, refreshToken, expiresIn, user profile
   - Ошибки: 401 (неверные credentials)
   - Публичный доступ
-- **`POST /auth/refresh`** - Обновление access token
+
+- **`POST /auth/refresh`** - Обновление access token (общее для всех типов)
   - Обновляет токены через Keycloak
   - Возвращает новые accessToken, refreshToken, expiresIn, user profile
   - Ошибки: 401 (неверный/истекший refresh token)
   - Публичный доступ
+
+- **`GET /auth/me`** - Получение профиля текущего пользователя
+  - Возвращает полный профиль пользователя (id, email, firstName, lastName, phone, avatar, balance)
+  - Требует Bearer token в заголовке Authorization
+  - Ошибки: 401 (не авторизован), 404 (пользователь не найден)
+  - Защищенный доступ
+
+- **`PATCH /auth/me`** - Обновление профиля текущего пользователя
+  - Обновляет firstName, lastName, phone, avatar
+  - Требует Bearer token в заголовке Authorization
+  - Ошибки: 401 (не авторизован), 404 (пользователь не найден)
+  - Защищенный доступ
+
+- **`POST /auth/change-password`** - Смена пароля (общее для User и WorkerAccount)
+  - Проверяет текущий пароль через Keycloak
+  - Обновляет пароль в Keycloak через Admin API
+  - Требует Bearer token в заголовке Authorization
+  - Валидация: newPassword (мин. 8 символов)
+  - Ошибки: 400 (валидация), 401 (неверный текущий пароль или не авторизован)
+  - Защищенный доступ
+
+#### WorkerAccount (работники)
+
+- **`POST /auth/workers`** - Регистрация нового работника
+  - Создает работника в Keycloak (email, password)
+  - Создает запись в Prisma (keycloakId, email, firstName, lastName, role, brandId?, cafeId?)
+  - Проверяет, что email не занят как User
+  - Возвращает accessToken, refreshToken, expiresIn, user profile
+  - Валидация: email (формат), password (мин. 8 символов), firstName, lastName, role (enum)
+  - Ошибки: 400 (валидация), 409 (работник уже существует или email занят как User)
+  - Публичный доступ
+
+- **`GET /auth/workers/me`** - Получение профиля текущего работника
+  - Возвращает профиль работника (id, email, firstName, lastName, role, brandId, cafeId)
+  - Требует Bearer token в заголовке Authorization
+  - Ошибки: 401 (не авторизован), 404 (аккаунт работника не найден)
+  - Защищенный доступ
+
+- **`PATCH /auth/workers/me`** - Обновление профиля текущего работника
+  - Обновляет firstName, lastName, role, brandId, cafeId
+  - Требует Bearer token в заголовке Authorization
+  - Ошибки: 401 (не авторизован), 404 (аккаунт работника не найден)
+  - Защищенный доступ
 
 - **`POST /auth/webhook/keycloak`** - Webhook для синхронизации данных из Keycloak
   - Принимает события от Keycloak (REGISTER, UPDATE_PROFILE, DELETE)
@@ -189,14 +252,24 @@
 - CORS настроен для фронтенда
 - Webhook требует проверки подписи (закомментировано для разработки)
 
+### Архитектура
+
+- ✅ Правильная архитектура без циклических зависимостей
+- ✅ Разделение на слои: Infrastructure → Business → Feature
+- ✅ WorkersModule использует KeycloakService напрямую (не через AuthModule)
+- ✅ Четкое разделение ответственности между модулями
+- ✅ Один email = один аккаунт (User или WorkerAccount)
+
 ## Что нужно сделать 🔨
 
 ### Аутентификация и авторизация
 
-- [ ] Эндпоинт получения профиля (`GET /auth/me`)
-- [ ] Эндпоинт обновления профиля (`PATCH /auth/me`)
-- [ ] Эндпоинт смены пароля (`POST /auth/change-password`)
-- [ ] Реализовать роли и права доступа (сисадмин, админ бренда)
+- ✅ Регистрация User и WorkerAccount - **ЗАВЕРШЕНО**
+- ✅ Логин и обновление токенов - **ЗАВЕРШЕНО**
+- ✅ Разделение эндпоинтов по типам аккаунтов - **ЗАВЕРШЕНО**
+- ✅ Эндпоинт получения профиля User (`GET /auth/me`) - **ЗАВЕРШЕНО**
+- ✅ Эндпоинт обновления профиля User (`PATCH /auth/me`) - **ЗАВЕРШЕНО**
+- ✅ Эндпоинт смены пароля (`POST /auth/change-password`) - **ЗАВЕРШЕНО**
 
 ### Управление пользователями
 

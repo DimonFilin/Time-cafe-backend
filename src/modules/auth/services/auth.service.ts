@@ -192,6 +192,44 @@ export class AuthService {
     };
   }
 
+  async getProfile(keycloakId: string): Promise<UserProfileDto> {
+    const user = await this.usersService.findByKeycloakId(keycloakId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    return this.mapToUserProfile(user);
+  }
+
+  async updateProfile(
+    keycloakId: string,
+    data: {
+      firstName?: string;
+      lastName?: string;
+      phone?: string;
+      avatar?: string;
+    },
+  ): Promise<UserProfileDto> {
+    const user = await this.usersService.findByKeycloakId(keycloakId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const updated = await this.usersService.update(user.id, data);
+    return this.mapToUserProfile(updated);
+  }
+
+  async changePassword(
+    keycloakId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    await this.keycloakService.resetPassword(
+      keycloakId,
+      currentPassword,
+      newPassword,
+    );
+  }
+
   private decodeToken(
     token: string,
   ): { sub?: string; [key: string]: unknown } | null {

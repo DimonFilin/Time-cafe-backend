@@ -25,7 +25,9 @@
 
 ## Аутентификация
 
-### `POST /auth/register`
+### User (клиенты)
+
+#### `POST /auth/register`
 
 Регистрация нового пользователя
 
@@ -51,9 +53,9 @@
 4. Автоматический логин с retry логикой (до 10 попыток)
 5. Возврат токенов и профиля
 
-### `POST /auth/login`
+#### `POST /auth/login`
 
-Авторизация пользователя
+Авторизация (общая для User и WorkerAccount)
 
 - **Доступ**: Публичный
 - **Тело запроса**:
@@ -70,12 +72,13 @@
 
 1. Валидация credentials через Keycloak
 2. Получение keycloakId из JWT токена
-3. Создание/обновление записи в Prisma по keycloakId
-4. Возврат токенов и профиля
+3. Определение типа аккаунта (User или WorkerAccount) по наличию в Prisma
+4. Создание/обновление записи в Prisma по keycloakId
+5. Возврат токенов и профиля
 
-### `POST /auth/refresh`
+#### `POST /auth/refresh`
 
-Обновление access token
+Обновление access token (общее для User и WorkerAccount)
 
 - **Доступ**: Публичный
 - **Тело запроса**:
@@ -91,10 +94,121 @@
 
 1. Обновление токенов через Keycloak
 2. Декодирование нового access token
-3. Поиск пользователя в Prisma по keycloakId
+3. Поиск аккаунта в Prisma по keycloakId (User или WorkerAccount)
 4. Возврат новых токенов и профиля
 
-### `POST /auth/webhook/keycloak`
+#### `GET /auth/me`
+
+Получение профиля текущего пользователя
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Ответ (200)**: `{ id, email, firstName, lastName, phone?, avatar?, balance, createdAt }`
+- **Ошибки**: 401 (не авторизован), 404 (пользователь не найден)
+
+#### `PATCH /auth/me`
+
+Обновление профиля текущего пользователя
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Тело запроса**:
+  ```json
+  {
+    "firstName": "John", // опционально
+    "lastName": "Doe", // опционально
+    "phone": "+1234567890", // опционально
+    "avatar": "https://example.com/avatar.jpg" // опционально
+  }
+  ```
+- **Ответ (200)**: `{ id, email, firstName, lastName, phone?, avatar?, balance, createdAt }`
+- **Ошибки**: 401 (не авторизован), 404 (пользователь не найден)
+
+#### `POST /auth/change-password`
+
+Смена пароля (общее для User и WorkerAccount)
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Тело запроса**:
+  ```json
+  {
+    "currentPassword": "OldPassword123!",
+    "newPassword": "NewPassword123!"
+  }
+  ```
+- **Ответ (200)**: `{ message: "Password changed successfully" }`
+- **Ошибки**: 400 (валидация), 401 (неверный текущий пароль или не авторизован)
+
+**Логика**:
+
+1. Проверка текущего пароля через Keycloak
+2. Обновление пароля в Keycloak через Admin API
+3. Возврат успешного ответа
+
+### WorkerAccount (работники)
+
+#### `POST /auth/workers`
+
+Регистрация нового работника
+
+- **Доступ**: Публичный
+- **Тело запроса**:
+  ```json
+  {
+    "email": "worker@example.com",
+    "password": "SecurePassword123!",
+    "firstName": "John",
+    "lastName": "Doe",
+    "role": "CAFE_ADMIN", // SYSTEM_ADMIN, BRAND_ADMIN, CAFE_ADMIN, WORKER
+    "brandId": "123e4567-e89b-12d3-a456-426614174000", // опционально
+    "cafeId": "123e4567-e89b-12d3-a456-426614174001" // опционально
+  }
+  ```
+- **Ответ (201)**: `{ accessToken, refreshToken, expiresIn, user: { id, email, firstName, lastName, ... } }`
+- **Ошибки**: 400 (валидация), 409 (работник уже существует или email занят как User)
+
+**Логика**:
+
+1. Проверка существования в Keycloak
+2. Проверка, что email не занят как User
+3. Проверка существования работника в Prisma
+4. Создание работника в Keycloak (email, password, emailVerified: true)
+5. Создание записи в Prisma (keycloakId, email, firstName, lastName, role, brandId?, cafeId?)
+6. Автоматический логин с retry логикой (до 10 попыток)
+7. Возврат токенов и профиля
+
+#### `GET /auth/workers/me`
+
+Получение профиля текущего работника
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Ответ (200)**: `{ id, email, firstName, lastName, role, brandId?, cafeId?, createdAt }`
+- **Ошибки**: 401 (не авторизован), 404 (аккаунт работника не найден)
+
+#### `PATCH /auth/workers/me`
+
+Обновление профиля текущего работника
+
+- **Доступ**: Требует Bearer token
+- **Заголовок**: `Authorization: Bearer <accessToken>`
+- **Тело запроса**:
+  ```json
+  {
+    "firstName": "John", // опционально
+    "lastName": "Doe", // опционально
+    "role": "CAFE_ADMIN", // опционально
+    "brandId": "123e4567-e89b-12d3-a456-426614174000", // опционально
+    "cafeId": "123e4567-e89b-12d3-a456-426614174001" // опционально
+  }
+  ```
+- **Ответ (200)**: `{ id, email, firstName, lastName, role, brandId?, cafeId?, createdAt }`
+- **Ошибки**: 401 (не авторизован), 404 (аккаунт работника не найден)
+
+### Webhook
+
+#### `POST /auth/webhook/keycloak`
 
 Webhook для синхронизации данных из Keycloak
 
@@ -105,7 +219,7 @@ Webhook для синхронизации данных из Keycloak
 **Логика**:
 
 - Обрабатывает события: REGISTER, UPDATE_PROFILE, DELETE
-- Синхронизирует email из Keycloak в Prisma
+- Синхронизирует email из Keycloak в Prisma (для User и WorkerAccount)
 
 ## Тестовые эндпоинты
 
