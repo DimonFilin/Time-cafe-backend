@@ -2,11 +2,17 @@ import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { KeycloakModule } from './keycloak.module';
 import { AuthTestController } from './auth-test.controller';
+import { AuthController } from './auth.controller';
+import { KeycloakWebhookController } from './controllers/keycloak-webhook.controller';
+import { KeycloakService } from './services/keycloak.service';
+import { AuthService } from './services/auth.service';
+import { KeycloakWebhookService } from './services/keycloak-webhook.service';
+import { UsersModule } from '../users/users.module';
 
 @Module({
-  imports: [KeycloakModule, HttpModule],
-  controllers: [AuthTestController],
-  providers: [],
-  exports: [KeycloakModule],
+  imports: [KeycloakModule, HttpModule, UsersModule],
+  controllers: [AuthController, AuthTestController, KeycloakWebhookController],
+  providers: [KeycloakService, AuthService, KeycloakWebhookService],
+  exports: [KeycloakModule, AuthService, KeycloakWebhookService],
 })
 export class AuthModule {}

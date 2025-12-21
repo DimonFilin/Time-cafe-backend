@@ -22,33 +22,33 @@ enum OrderStatus {
 }
 
 model WorkerAccount {
-  id        String    @id @default(uuid())
-  email     String    @unique
-  password  String
-  firstName String
-  lastName  String
-  role      WorkerRole
-  brandId   String?
-  brand     Brand?    @relation(fields: [brandId], references: [id])
-  cafeId    String?
-  cafe      Cafe?     @relation(fields: [cafeId], references: [id])
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id          String    @id @default(uuid())
+  keycloakId  String    @unique
+  email       String    @unique
+  firstName   String
+  lastName    String
+  role        WorkerRole
+  brandId     String?
+  brand       Brand?    @relation(fields: [brandId], references: [id])
+  cafeId      String?
+  cafe        Cafe?     @relation(fields: [cafeId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@map("worker_accounts")
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  firstName String
-  lastName  String
-  phone     String?
-  avatar    String?
-  balance   Decimal  @default(0) @db.Decimal(10, 2)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(uuid())
+  keycloakId  String   @unique
+  email       String   @unique
+  firstName   String
+  lastName    String
+  phone       String?
+  avatar      String?
+  balance     Decimal  @default(0) @db.Decimal(10, 2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   orders    Order[]
   reviews   Review[]
