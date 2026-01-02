@@ -20,6 +20,10 @@ export class HealthCheckResponseDto {
         status: 'ok',
         responseTime: 4,
       },
+      storage: {
+        status: 'ok',
+        responseTime: 2,
+      },
     },
     description: 'Status of all health checks',
   })
@@ -29,10 +33,17 @@ export class HealthCheckResponseDto {
       message?: string;
       responseTime?: number;
     };
-    [key: string]: {
+    storage?: {
       status: 'ok' | 'error';
       message?: string;
       responseTime?: number;
     };
+    [key: string]:
+      | {
+          status: 'ok' | 'error';
+          message?: string;
+          responseTime?: number;
+        }
+      | undefined;
   };
 }

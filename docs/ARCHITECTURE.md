@@ -13,6 +13,7 @@
 - **KeycloakModule** - интеграция с Keycloak (аутентификация)
 - **PrismaModule** - работа с базой данных
 - **HttpModule** - HTTP клиент для внешних запросов
+- **StorageModule** - интеграция с MinIO (S3-совместимое хранилище файлов)
 
 ### 2. Business Layer (Бизнес-слой)
 
@@ -124,8 +125,31 @@ KeycloakModule (инфраструктура)
 - **При обновлении email в Keycloak**: Webhook синхронизирует в Prisma
 - **Бизнес-данные**: Изменения в Prisma не синхронизируются с Keycloak
 
+## Хранение файлов (MinIO)
+
+### Архитектура
+
+Система использует MinIO как S3-совместимое хранилище для файлов:
+
+- **StorageService** - универсальный сервис для работы с файлами
+- **Buckets**: `brands`, `cafes`, `users`, `public`
+- **Операции**: загрузка, удаление, получение URL, проверка существования, метаданные, копирование
+- **Доступ**: все файлы используют подписанные URL (MinIO требует подпись для доступа)
+
+### Конфигурация
+
+- Endpoint: `STORAGE_ENDPOINT` (по умолчанию `http://localhost:9000`)
+- Credentials: `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` (по умолчанию `minioadmin`)
+- Region: `STORAGE_REGION` (по умолчанию `us-east-1`)
+- SSL: `STORAGE_USE_SSL` (по умолчанию `false`)
+
+### Health Check
+
+Storage проверяется в `/system/health-check` через операцию `listFiles` на публичном bucket.
+
 ## Тестирование
 
 - E2E тесты для всех эндпоинтов (26 тестов)
+- E2E тесты для StorageService (12 тестов)
 - Pre-commit hooks с автоматическим запуском тестов
 - ValidationPipe настроен глобально

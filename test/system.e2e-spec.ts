@@ -50,7 +50,7 @@ describe('System Endpoints (e2e)', () => {
             body: {
               status?: string;
               timestamp?: string;
-              checks?: { database?: unknown };
+              checks?: { database?: unknown; storage?: unknown };
             };
           }) => {
             expect(res.body).toHaveProperty('status');
@@ -58,6 +58,7 @@ describe('System Endpoints (e2e)', () => {
             expect(res.body).toHaveProperty('timestamp');
             expect(res.body).toHaveProperty('checks');
             expect(res.body.checks).toHaveProperty('database');
+            expect(res.body.checks).toHaveProperty('storage');
           },
         );
     });

@@ -4,8 +4,10 @@ import { SystemController } from './system.controller';
 import { SystemService } from './system.service';
 import { MetricsService } from './metrics.service';
 import { MetricsInterceptor } from './interceptors/metrics.interceptor';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
+  imports: [StorageModule],
   controllers: [SystemController],
   providers: [
     SystemService,

@@ -1,15 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { HealthCheckResponseDto } from './dto/health-check.response.dto';
 import { PingResponseDto } from './dto/ping.response.dto';
 import { MetricsResponseDto } from './dto/metrics.response.dto';
 import { MetricsService } from './metrics.service';
+import { StorageService } from '../storage/storage.service';
 
 @Injectable()
 export class SystemService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly metricsService: MetricsService,
+    @Optional() private readonly storageService?: StorageService,
   ) {}
 
   async healthCheck(): Promise<HealthCheckResponseDto> {
@@ -17,8 +19,12 @@ export class SystemService {
       database: await this.checkDatabase(),
     };
 
+    if (this.storageService) {
+      checks.storage = await this.checkStorage();
+    }
+
     const allHealthy = Object.values(checks).every(
-      (check) => check.status === 'ok',
+      (check) => check && check.status === 'ok',
     );
 
     return {
@@ -36,6 +42,39 @@ export class SystemService {
     const startTime = Date.now();
     try {
       await this.prisma.$queryRaw`SELECT 1`;
+      const responseTime = Date.now() - startTime;
+      return {
+        status: 'ok',
+        responseTime,
+      };
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+      return {
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        responseTime,
+      };
+    }
+  }
+
+  private async checkStorage(): Promise<{
+    status: 'ok' | 'error';
+    message?: string;
+    responseTime?: number;
+  }> {
+    const startTime = Date.now();
+    try {
+      if (!this.storageService) {
+        return {
+          status: 'error',
+          message: 'StorageService not available',
+          responseTime: Date.now() - startTime,
+        };
+      }
+
+      // Check if we can list files in the public bucket (lightweight operation)
+      const buckets = this.storageService.getBuckets();
+      await this.storageService.listFiles(buckets.public);
       const responseTime = Date.now() - startTime;
       return {
         status: 'ok',

@@ -135,7 +135,7 @@ describe('Payments Endpoints (e2e)', () => {
         .send({
           cardNumber: '4242424242424242',
           expiryMonth: 12,
-          expiryYear: 2025,
+          expiryYear: new Date().getFullYear() + 2,
           cvv: '123',
           holderName: 'Test User',
         })
@@ -162,7 +162,7 @@ describe('Payments Endpoints (e2e)', () => {
         .send({
           cardNumber: '5555555555554444',
           expiryMonth: 11,
-          expiryYear: 2026,
+          expiryYear: new Date().getFullYear() + 2,
           cvv: '456',
         })
         .expect(201);
@@ -186,13 +186,13 @@ describe('Payments Endpoints (e2e)', () => {
         .send({
           cardNumber: '123',
           expiryMonth: 12,
-          expiryYear: 2025,
+          expiryYear: new Date().getFullYear() + 2,
           cvv: '123',
         })
         .expect(400);
     });
 
-    it('should return 400 for expired card', async () => {
+    it('should return 409 for expired card', async () => {
       await request(
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
@@ -201,10 +201,10 @@ describe('Payments Endpoints (e2e)', () => {
         .send({
           cardNumber: '4242424242424242',
           expiryMonth: 1,
-          expiryYear: 2020,
+          expiryYear: new Date().getFullYear() - 1, // Прошедший год
           cvv: '123',
         })
-        .expect(400);
+        .expect(409);
     });
 
     it('should return 401 without token', () => {
@@ -215,7 +215,7 @@ describe('Payments Endpoints (e2e)', () => {
         .send({
           cardNumber: '4242424242424242',
           expiryMonth: 12,
-          expiryYear: 2025,
+          expiryYear: new Date().getFullYear() + 2,
           cvv: '123',
         })
         .expect(401);
@@ -255,7 +255,7 @@ describe('Payments Endpoints (e2e)', () => {
             last4Digits: '1234',
             cardType: 'visa',
             expiryMonth: 12,
-            expiryYear: 2025,
+            expiryYear: new Date().getFullYear() + 2,
             providerToken: 'token_123',
             isDefault: true,
             isActive: true,
@@ -324,7 +324,7 @@ describe('Payments Endpoints (e2e)', () => {
             last4Digits: '4242',
             cardType: 'visa',
             expiryMonth: 12,
-            expiryYear: 2025,
+            expiryYear: new Date().getFullYear() + 2,
             providerToken: 'token_123',
             isDefault: true,
             isActive: true,
@@ -423,7 +423,7 @@ describe('Payments Endpoints (e2e)', () => {
             last4Digits: '4242',
             cardType: 'visa',
             expiryMonth: 12,
-            expiryYear: 2025,
+            expiryYear: new Date().getFullYear() + 2,
             providerToken: 'token_123',
             isDefault: true,
             isActive: true,
@@ -511,7 +511,7 @@ describe('Payments Endpoints (e2e)', () => {
             last4Digits: '4242',
             cardType: 'visa',
             expiryMonth: 12,
-            expiryYear: 2025,
+            expiryYear: new Date().getFullYear() + 2,
             providerToken: 'token_123',
             isDefault: true,
             isActive: true,

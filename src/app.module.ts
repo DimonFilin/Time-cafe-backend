@@ -12,6 +12,7 @@ import { SystemAdminModule } from './modules/system-admin/system-admin.module';
 import { BrandAdminModule } from './modules/brand-admin/brand-admin.module';
 import { SystemModule } from './modules/system/system.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { StorageModule } from './modules/storage/storage.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
     BrandAdminModule,
     SystemModule,
     PaymentsModule,
+    StorageModule,
   ],
   controllers: [AppController],
   providers: [AppService],
