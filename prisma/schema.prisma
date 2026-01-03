@@ -34,6 +34,22 @@ enum TransactionStatus {
   CANCELLED     // Отменена
 }
 
+enum BrandStatus {
+  PENDING       // Ожидает проверки
+  ACTIVE        // Активен
+  SUSPENDED     // Приостановлен
+  REJECTED      // Отклонен
+}
+
+enum DocumentType {
+  REGISTRATION    // Свидетельство о регистрации
+  LICENSE         // Лицензия на деятельность
+  CONTRACT        // Договор с платформой
+  TAX_CERTIFICATE // Справка из налоговой
+  BANK_STATEMENT  // Выписка из банка
+  OTHER           // Другое
+}
+
 model WorkerAccount {
   id          String    @id @default(uuid())
   keycloakId  String
@@ -80,11 +96,43 @@ model Brand {
   description String?
   logo        String?
   primaryColor String?  @default("#000000")
+  
+  // Customization
+  secondaryColor    String?
+  accentColor       String?
+  backgroundColor   String?
+  textColor         String?
+  fontFamily        String?
+  
+  // Media
+  favicon           String?
+  bannerImage       String?
+  backgroundImage   String?
+  
+  // Contact information
+  website           String?
+  phone             String?
+  email             String?
+  address           String?
+  
+  // Status and verification
+  status            BrandStatus @default(PENDING)
+  isVerified        Boolean     @default(false)
+  verifiedAt        DateTime?
+  
+  // Settings
+  settings          Json?
+  
+  // Soft delete
+  deletedAt         DateTime?
+  
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   cafes           Cafe[]
   workerAccounts  WorkerAccount[]
+  legalDocuments  BrandDocument[]
+  apiKeys         BrandApiKey[]
 
   @@map("brands")
 }
@@ -230,4 +278,51 @@ model Transaction {
   @@index([status])
   @@index([orderId])
   @@map("transactions")
+}
+
+model BrandDocument {
+  id              String        @id @default(uuid())
+  brandId         String
+  brand           Brand         @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  
+  type            DocumentType
+  name            String
+  fileUrl         String
+  fileType        String?
+  fileSize        Int?
+  
+  uploadedAt      DateTime      @default(now())
+  verifiedAt      DateTime?
+  verifiedBy      String?
+  isVerified      Boolean       @default(false)
+  verificationNote String?
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  @@index([brandId])
+  @@map("brand_documents")
+}
+
+model BrandApiKey {
+  id              String    @id @default(uuid())
+  brandId         String
+  brand           Brand     @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  
+  name            String
+  keyHash         String    @unique
+  prefix          String
+  
+  permissions     String[]
+  isActive        Boolean   @default(true)
+  lastUsedAt      DateTime?
+  expiresAt      DateTime?
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+  
+  @@index([brandId, isActive])
+  @@index([keyHash])
+  @@map("brand_api_keys")
 }

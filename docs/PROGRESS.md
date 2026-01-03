@@ -292,11 +292,44 @@
   - ✅ Эндпоинты для создания платежей и возвратов
   - ✅ Симуляция Stripe (валидация = успех)
 
-### Управление брендами
+### Управление брендами - ЗАВЕРШЕНО ✅
 
-- [ ] CRUD операции для брендов
-- [ ] Настройка бренда (цвета, логотип, тема)
-- [ ] Выдача ключей для создания брендов
+- ✅ CRUD операции для брендов
+  - ✅ POST /brands - создание бренда (публичный, с валидацией)
+  - ✅ GET /brands - список брендов с фильтрацией по статусу
+  - ✅ GET /brands/:id - детали бренда (публичный)
+  - ✅ PATCH /brands/:id - обновление бренда (BRAND_ADMIN или SYSTEM_ADMIN)
+  - ✅ DELETE /brands/:id - soft delete (SYSTEM_ADMIN)
+- ✅ Настройка бренда (цвета, логотип, тема)
+  - ✅ PATCH /brands/:id/customization - обновление кастомизации (BRAND_ADMIN)
+  - ✅ POST /brands/:id/logo - загрузка логотипа в MinIO (BRAND_ADMIN)
+  - ✅ POST /brands/:id/banner - загрузка баннера в MinIO (BRAND_ADMIN)
+  - ✅ Валидация hex-цветов, размеров файлов
+- ✅ Выдача ключей для создания брендов
+  - ✅ POST /brands/:id/api-keys - создание API ключа (BRAND_ADMIN)
+  - ✅ GET /brands/:id/api-keys - список ключей (BRAND_ADMIN)
+  - ✅ PATCH /brands/:id/api-keys/:keyId - обновление разрешений (BRAND_ADMIN)
+  - ✅ DELETE /brands/:id/api-keys/:keyId - отзыв ключа (BRAND_ADMIN)
+  - ✅ Генерация уникальных ключей (tc*live*...), хеширование SHA-256
+- ✅ Workflow управления брендами
+  - ✅ POST /brands/:id/documents - загрузка документов (требует авторизации)
+  - ✅ GET /brands/:id/documents - список документов (публичный)
+  - ✅ GET /brands/:id/documents/:docId - получение документа (публичный)
+  - ✅ DELETE /brands/:id/documents/:docId - удаление документа (требует авторизации)
+  - ✅ PATCH /brands/:id/documents/:docId/verify - верификация документа (SYSTEM_ADMIN)
+  - ✅ POST /brands/:id/verify - активация бренда (SYSTEM_ADMIN, проверка обязательных документов)
+  - ✅ POST /brands/:id/reject - отклонение бренда (SYSTEM_ADMIN)
+  - ✅ POST /brands/:id/suspend - приостановка бренда (SYSTEM_ADMIN)
+- ✅ Интеграция с MinIO для хранения файлов
+  - ✅ Загрузка документов в bucket brands/{brandId}/documents/
+  - ✅ Загрузка логотипов в bucket brands/{brandId}/logo/
+  - ✅ Загрузка баннеров в bucket brands/{brandId}/banner/
+  - ✅ Автоматическое удаление старых файлов при замене
+- ✅ Проверка прав доступа
+  - ✅ SYSTEM_ADMIN - доступ ко всем брендам
+  - ✅ BRAND_ADMIN - доступ только к своему бренду (проверка через brandId)
+  - ✅ Роли хранятся в БД (WorkerAccount.role), проверка через WorkersService
+- ✅ E2E тесты для всех эндпоинтов (54 теста, все проходят)
 
 ### Управление кофейнями
 
