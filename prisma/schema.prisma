@@ -166,6 +166,7 @@ model Cafe {
   regionId    String
   region      Region    @relation(fields: [regionId], references: [id])
   cafeApiUrl  String?   // URL к локальному сервису кофейни
+  deletedAt   DateTime? // Soft delete
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
