@@ -36,7 +36,7 @@ export class UpdateBrandDto {
   email?: string;
 
   @ApiPropertyOptional({
-    example: '+7 (999) 123-45-67',
+    example: '+375 (29) 123-45-67',
     description: 'Contact phone',
   })
   @IsOptional()

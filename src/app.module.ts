@@ -14,6 +14,7 @@ import { SystemModule } from './modules/system/system.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { SystemSettingsModule } from './modules/system-settings/system-settings.module';
+import { OrdersModule } from './modules/orders/orders.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { SystemSettingsModule } from './modules/system-settings/system-settings.
     PaymentsModule,
     StorageModule,
     SystemSettingsModule,
+    OrdersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

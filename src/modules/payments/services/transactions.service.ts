@@ -90,7 +90,7 @@ export class TransactionsService {
         type: TransactionType.PAYMENT,
         status: TransactionStatus.PENDING,
         amount,
-        currency: 'RUB',
+        currency: 'BYN',
         cardId,
         orderId,
         description:

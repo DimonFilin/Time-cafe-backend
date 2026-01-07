@@ -26,13 +26,13 @@ export class BrandStatsDto {
   totalReviews: number;
 
   @ApiProperty({
-    example: { Moscow: 5, 'Saint Petersburg': 3, Kazan: 2 },
+    example: { Минск: 5, Гомель: 3, Брест: 2 },
     description: 'Number of cafes by city',
   })
   cafesByCity: Record<string, number>;
 
   @ApiProperty({
-    example: { 'Moscow Region': 5, 'Saint Petersburg Region': 3 },
+    example: { 'Минская область': 5, 'Гомельская область': 3 },
     description: 'Number of cafes by region',
   })
   cafesByRegion: Record<string, number>;

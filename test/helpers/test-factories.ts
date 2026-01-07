@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -8,10 +9,22 @@ import { WorkerRole, BrandStatus } from '@prisma/client';
  * Test factories for creating test data in e2e tests
  */
 
-interface TestFactoriesDependencies {
+export interface TestFactoriesDependencies {
   app: INestApplication;
   prisma: PrismaService;
   keycloakService: KeycloakService;
+}
+
+export function getTestFactoriesDeps(
+  app: INestApplication,
+  prisma: PrismaService,
+  keycloakService: KeycloakService,
+): TestFactoriesDependencies {
+  return {
+    app,
+    prisma,
+    keycloakService,
+  };
 }
 
 /**
@@ -40,9 +53,7 @@ export async function createSystemAdmin(
     });
 
     // Login to get token
-    const loginResponse = await request(
-      app.getHttpServer() as unknown as Parameters<typeof request>[0],
-    )
+    const loginResponse = await request(app.getHttpServer())
       .post('/auth/login')
       .send({
         email: adminEmail,
@@ -52,9 +63,7 @@ export async function createSystemAdmin(
     return (loginResponse.body as { accessToken: string }).accessToken;
   } catch {
     // If user already exists, try to login
-    const loginResponse = await request(
-      app.getHttpServer() as unknown as Parameters<typeof request>[0],
-    )
+    const loginResponse = await request(app.getHttpServer())
       .post('/auth/login')
       .send({
         email: adminEmail,
@@ -77,9 +86,7 @@ export async function createBrandAdmin(
   const adminEmail = `brandadmin-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`;
   const password = 'Admin123!@#';
 
-  const adminResponse = await request(
-    app.getHttpServer() as unknown as Parameters<typeof request>[0],
-  )
+  const adminResponse = await request(app.getHttpServer())
     .post('/auth/workers')
     .set('Authorization', `Bearer ${systemAdminToken}`)
     .send({
@@ -95,9 +102,7 @@ export async function createBrandAdmin(
     return (adminResponse.body as { accessToken: string }).accessToken;
   } else {
     // If registration failed, try to login
-    const loginResponse = await request(
-      app.getHttpServer() as unknown as Parameters<typeof request>[0],
-    )
+    const loginResponse = await request(app.getHttpServer())
       .post('/auth/login')
       .send({
         email: adminEmail,
@@ -120,9 +125,7 @@ export async function createCafeAdmin(
   const adminEmail = `cafeadmin-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`;
   const password = 'Admin123!@#';
 
-  const adminResponse = await request(
-    app.getHttpServer() as unknown as Parameters<typeof request>[0],
-  )
+  const adminResponse = await request(app.getHttpServer())
     .post('/auth/workers')
     .set('Authorization', `Bearer ${adminToken}`)
     .send({
@@ -139,9 +142,7 @@ export async function createCafeAdmin(
     return (adminResponse.body as { accessToken: string }).accessToken;
   } else {
     // If registration failed, try to login
-    const loginResponse = await request(
-      app.getHttpServer() as unknown as Parameters<typeof request>[0],
-    )
+    const loginResponse = await request(app.getHttpServer())
       .post('/auth/login')
       .send({
         email: adminEmail,
@@ -164,9 +165,7 @@ export async function createWorker(
   const workerEmail = `worker-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`;
   const password = 'Worker123!@#';
 
-  const workerResponse = await request(
-    app.getHttpServer() as unknown as Parameters<typeof request>[0],
-  )
+  const workerResponse = await request(app.getHttpServer())
     .post('/auth/workers')
     .set('Authorization', `Bearer ${adminToken}`)
     .send({
@@ -183,9 +182,7 @@ export async function createWorker(
     return (workerResponse.body as { accessToken: string }).accessToken;
   } else {
     // If registration failed, try to login
-    const loginResponse = await request(
-      app.getHttpServer() as unknown as Parameters<typeof request>[0],
-    )
+    const loginResponse = await request(app.getHttpServer())
       .post('/auth/login')
       .send({
         email: workerEmail,
@@ -213,9 +210,7 @@ export async function createRegularUser(
     `user-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`;
   const password = options?.password || 'User123!@#';
 
-  const userResponse = await request(
-    app.getHttpServer() as unknown as Parameters<typeof request>[0],
-  )
+  const userResponse = await request(app.getHttpServer())
     .post('/auth/register')
     .send({
       email: userEmail,
@@ -251,7 +246,7 @@ export async function createBrand(
     data: {
       name: options?.name || `Test Brand ${timestamp}`,
       email,
-      phone: options?.phone || '+7 (999) 123-45-67',
+      phone: options?.phone || '+375 (29) 123-45-67',
       address: options?.address || '123 Main St',
       status: options?.status || BrandStatus.PENDING,
       isVerified: options?.isVerified ?? false,

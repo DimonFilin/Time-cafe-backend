@@ -29,7 +29,7 @@ export class CreateBrandDto {
   @IsEmail()
   email: string;
 
-  @ApiProperty({ example: '+7 (999) 123-45-67', description: 'Contact phone' })
+  @ApiProperty({ example: '+375 (29) 123-45-67', description: 'Contact phone' })
   @IsString()
   phone: string;
 

@@ -12,7 +12,7 @@ export class CreatePaymentDto {
 
   @ApiProperty({
     example: 1000.0,
-    description: 'Payment amount in RUB',
+    description: 'Payment amount in BYN',
     minimum: 0.01,
   })
   @IsNumber()

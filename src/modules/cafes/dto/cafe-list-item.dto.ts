@@ -8,12 +8,12 @@ export class CafeListItemDto {
   name: string;
 
   @ApiProperty({
-    example: 'Moscow, Red Square, 1',
+    example: 'Минск, проспект Независимости, 1',
     description: 'Full address',
   })
   address: string;
 
-  @ApiProperty({ example: 'Moscow', description: 'City name' })
+  @ApiProperty({ example: 'Минск', description: 'City name' })
   city: string;
 
   @ApiProperty({

@@ -3,7 +3,7 @@ import { IsString, IsNotEmpty } from 'class-validator';
 
 export class GeocodeDto {
   @ApiProperty({
-    example: 'Moscow, Red Square, 1',
+    example: 'Минск, проспект Независимости, 1',
     description: 'Address to geocode',
   })
   @IsString()
@@ -25,19 +25,19 @@ export class GeocodeResponseDto {
   longitude: number;
 
   @ApiProperty({
-    example: 'Moscow, Red Square, 1',
+    example: 'Минск, проспект Независимости, 1',
     description: 'Formatted address',
   })
   formattedAddress: string;
 
   @ApiProperty({
-    example: 'Moscow',
+    example: 'Минск',
     description: 'City name',
   })
   city?: string;
 
   @ApiProperty({
-    example: 'Russia',
+    example: 'Беларусь',
     description: 'Country name',
   })
   country?: string;

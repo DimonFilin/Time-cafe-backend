@@ -9,12 +9,12 @@ export class BrandReportCafeDto {
   name: string;
 
   @ApiProperty({
-    example: 'Moscow, Red Square, 1',
+    example: 'Минск, проспект Независимости, 1',
     description: 'Cafe address',
   })
   address: string;
 
-  @ApiProperty({ example: 'Moscow', description: 'City' })
+  @ApiProperty({ example: 'Минск', description: 'City' })
   city: string;
 
   @ApiProperty({ example: 4.5, description: 'Cafe rating' })

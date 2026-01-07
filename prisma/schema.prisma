@@ -21,6 +21,18 @@ enum OrderStatus {
   COMPLETED
 }
 
+enum DeliveryType {
+  IN_CAFE
+  TAKEOUT
+  DELIVERY
+}
+
+enum PaymentMethod {
+  CARD
+  BALANCE
+  CASH
+}
+
 enum TransactionType {
   PAYMENT // Платеж картой
   REFUND // Возврат средств
@@ -179,19 +191,56 @@ model Cafe {
 }
 
 model Order {
-  id          String      @id @default(uuid())
-  userId      String
-  user        User        @relation(fields: [userId], references: [id])
-  cafeId      String
-  cafe        Cafe        @relation(fields: [cafeId], references: [id])
-  status      OrderStatus @default(PENDING)
-  totalAmount Decimal     @db.Decimal(10, 2)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id            String       @id @default(uuid())
+  orderNumber   String       @unique
+  userId        String
+  user          User         @relation(fields: [userId], references: [id])
+  cafeId        String
+  cafe          Cafe         @relation(fields: [cafeId], references: [id])
+  appointmentId String?      @unique
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id])
+  status        OrderStatus  @default(PENDING)
+  totalAmount   Decimal      @db.Decimal(10, 2)
 
+  deliveryType    DeliveryType @default(IN_CAFE)
+  deliveryAddress String?
+  contactPhone    String?
+  notes           String?
+
+  paymentMethod PaymentMethod @default(CARD)
+
+  paidAt             DateTime?
+  confirmedAt        DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items        OrderItem[]
   transactions Transaction[]
 
+  @@index([userId, createdAt])
+  @@index([cafeId, status])
+  @@index([orderNumber])
   @@map("orders")
+}
+
+model OrderItem {
+  id         String   @id @default(uuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  itemName   String
+  quantity   Int
+  unitPrice  Decimal  @db.Decimal(10, 2)
+  totalPrice Decimal  @db.Decimal(10, 2)
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([orderId])
+  @@map("order_items")
 }
 
 model Review {
@@ -209,15 +258,22 @@ model Review {
 }
 
 model Appointment {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  cafeId    String
-  cafe      Cafe     @relation(fields: [cafeId], references: [id])
-  dateTime  DateTime
-  duration  Int // в минутах
-  status    String   @default("pending") // pending, confirmed, cancelled, completed
-  qrCode    String?  @unique
+  id       String   @id @default(uuid())
+  userId   String
+  user     User     @relation(fields: [userId], references: [id])
+  cafeId   String
+  cafe     Cafe     @relation(fields: [cafeId], references: [id])
+  dateTime DateTime
+  duration Int // в минутах
+  status   String   @default("pending") // pending, confirmed, cancelled, completed
+  qrCode   String?  @unique
+
+  totalAmount   Decimal? @db.Decimal(10, 2)
+  paymentMethod String? // "CARD", "BALANCE", "CASH", "FREE"
+  transactionId String?
+
+  order Order? @relation
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

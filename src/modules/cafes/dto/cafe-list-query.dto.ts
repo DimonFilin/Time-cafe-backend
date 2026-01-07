@@ -40,7 +40,7 @@ export class CafeListQueryDto {
   regionId?: string;
 
   @ApiPropertyOptional({
-    example: 'Moscow',
+    example: 'Минск',
     description: 'Filter by city name',
   })
   @IsOptional()
@@ -48,7 +48,7 @@ export class CafeListQueryDto {
   city?: string;
 
   @ApiPropertyOptional({
-    example: 'Russia',
+    example: 'Беларусь',
     description: 'Filter by country (through region)',
   })
   @IsOptional()

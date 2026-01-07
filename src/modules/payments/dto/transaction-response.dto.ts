@@ -17,7 +17,7 @@ export class TransactionResponseDto {
   @ApiProperty({ example: '1000.00' })
   amount: string;
 
-  @ApiProperty({ example: 'RUB' })
+  @ApiProperty({ example: 'BYN' })
   currency: string;
 
   @ApiProperty({
