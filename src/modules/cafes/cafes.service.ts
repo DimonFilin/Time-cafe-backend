@@ -42,6 +42,7 @@ export class CafesService {
    * Check if user has access to cafe operations
    * SYSTEM_ADMIN has access to all cafes
    * BRAND_ADMIN has access to cafes of their brand
+   * CAFE_ADMIN has access only to their assigned cafe
    */
   private async checkCafeAccess(
     brandId: string,
@@ -63,7 +64,62 @@ export class CafesService {
     }
 
     throw new ForbiddenException(
-      'Only BRAND_ADMIN of this brand or SYSTEM_ADMIN can perform this action',
+      'Only BRAND_ADMIN of this brand, CAFE_ADMIN of this cafe, or SYSTEM_ADMIN can perform this action',
+    );
+  }
+
+  /**
+   * Check if user has access to a specific cafe by ID
+   * SYSTEM_ADMIN has access to all cafes
+   * BRAND_ADMIN has access to cafes of their brand
+   * CAFE_ADMIN has access only to their assigned cafe
+   */
+  private async checkCafeAccessById(
+    cafeId: string,
+    keycloakId: string,
+  ): Promise<void> {
+    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    if (!worker) {
+      throw new ForbiddenException('Worker account not found');
+    }
+
+    // SYSTEM_ADMIN has access to all cafes
+    if (worker.role === WorkerRole.SYSTEM_ADMIN) {
+      return;
+    }
+
+    // CAFE_ADMIN has access only to their assigned cafe
+    if (worker.role === WorkerRole.CAFE_ADMIN) {
+      if (worker.cafeId === cafeId) {
+        return;
+      }
+      throw new ForbiddenException(
+        'CAFE_ADMIN can only access their assigned cafe',
+      );
+    }
+
+    // BRAND_ADMIN must be assigned to the cafe's brand
+    if (worker.role === WorkerRole.BRAND_ADMIN) {
+      const cafe = await this.prisma.cafe.findUnique({
+        where: { id: cafeId },
+        select: { brandId: true },
+      });
+
+      if (!cafe) {
+        throw new NotFoundException(`Cafe with ID ${cafeId} not found`);
+      }
+
+      if (worker.brandId === cafe.brandId) {
+        return;
+      }
+
+      throw new ForbiddenException(
+        'BRAND_ADMIN can only access cafes of their brand',
+      );
+    }
+
+    throw new ForbiddenException(
+      'Only BRAND_ADMIN of this brand, CAFE_ADMIN of this cafe, or SYSTEM_ADMIN can perform this action',
     );
   }
 
@@ -456,6 +512,28 @@ export class CafesService {
   }
 
   /**
+   * Get cafe for CAFE_ADMIN (their assigned cafe)
+   */
+  async findMyCafe(keycloakId: string): Promise<CafeResponseDto> {
+    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    if (!worker) {
+      throw new ForbiddenException('Worker account not found');
+    }
+
+    if (worker.role !== WorkerRole.CAFE_ADMIN) {
+      throw new ForbiddenException(
+        'This endpoint is only available for CAFE_ADMIN',
+      );
+    }
+
+    if (!worker.cafeId) {
+      throw new NotFoundException('CAFE_ADMIN is not assigned to any cafe');
+    }
+
+    return this.findOne(worker.cafeId);
+  }
+
+  /**
    * Update cafe
    * Cannot update soft-deleted cafes
    */
@@ -479,7 +557,24 @@ export class CafesService {
     }
 
     // Check access rights
-    await this.checkCafeAccess(cafe.brandId, keycloakId);
+    await this.checkCafeAccessById(id, keycloakId);
+
+    // Get worker to check role
+    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    if (!worker) {
+      throw new ForbiddenException('Worker account not found');
+    }
+
+    // CAFE_ADMIN cannot change brandId
+    if (
+      worker.role === WorkerRole.CAFE_ADMIN &&
+      updateCafeDto.brandId &&
+      updateCafeDto.brandId !== cafe.brandId
+    ) {
+      throw new ForbiddenException(
+        'CAFE_ADMIN cannot change the brand of their cafe',
+      );
+    }
 
     // If brandId is being updated, check new brand exists and is active
     if (updateCafeDto.brandId && updateCafeDto.brandId !== cafe.brandId) {
@@ -502,7 +597,7 @@ export class CafesService {
         );
       }
 
-      // Check access to new brand
+      // Check access to new brand (only SYSTEM_ADMIN and BRAND_ADMIN can change brand)
       await this.checkCafeAccess(updateCafeDto.brandId, keycloakId);
     }
 
@@ -582,6 +677,7 @@ export class CafesService {
 
   /**
    * Delete cafe (soft delete)
+   * CAFE_ADMIN cannot delete cafes, only BRAND_ADMIN and SYSTEM_ADMIN can
    */
   async remove(id: string, keycloakId: string): Promise<void> {
     const cafe = await this.prisma.cafe.findUnique({
@@ -595,7 +691,17 @@ export class CafesService {
       throw new NotFoundException(`Cafe with ID ${id} not found`);
     }
 
-    // Check access rights
+    // Check access rights - CAFE_ADMIN cannot delete
+    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    if (!worker) {
+      throw new ForbiddenException('Worker account not found');
+    }
+
+    if (worker.role === WorkerRole.CAFE_ADMIN) {
+      throw new ForbiddenException('CAFE_ADMIN cannot delete cafes');
+    }
+
+    // Check access rights for BRAND_ADMIN and SYSTEM_ADMIN
     await this.checkCafeAccess(cafe.brandId, keycloakId);
 
     // Check if already deleted

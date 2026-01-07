@@ -7,7 +7,11 @@ import { BrandStatus } from '@prisma/client';
 import { CafeResponseDto } from '../src/modules/cafes/dto/cafe-response.dto';
 import { CafeListResponseDto } from '../src/modules/cafes/dto/cafe-list-response.dto';
 import { KeycloakService } from '../src/modules/auth/services/keycloak.service';
-import { createSystemAdmin, createBrandAdmin } from './helpers/test-factories';
+import {
+  createSystemAdmin,
+  createBrandAdmin,
+  createCafeAdmin,
+} from './helpers/test-factories';
 
 describe('Cafes Endpoints (e2e)', () => {
   let app: INestApplication;
@@ -1081,6 +1085,218 @@ describe('Cafes Endpoints (e2e)', () => {
       )
         .get(`/cafes/${testCafeId}`)
         .expect(404);
+    });
+  });
+
+  describe('CAFE_ADMIN endpoints', () => {
+    let testCafeId: string;
+    let testBrandId: string;
+    let cafeAdminToken: string;
+    let systemAdminToken: string;
+    let otherCafeId: string;
+
+    beforeAll(async () => {
+      // Create SYSTEM_ADMIN
+      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
+
+      // Create test brand
+      const brand = await prisma.brand.create({
+        data: {
+          name: 'Test Brand for Cafe Admin',
+          email: 'cafeadmin@brand.com',
+          phone: '+7 (999) 123-45-67',
+          address: '123 Main St',
+          status: BrandStatus.ACTIVE,
+          isVerified: true,
+          verifiedAt: new Date(),
+        },
+      });
+      testBrandId = brand.id;
+      brandsToCleanup.push(testBrandId);
+
+      // Create test region
+      const region = await prisma.region.create({
+        data: {
+          name: 'Cafe Admin Region',
+          country: 'Russia',
+        },
+      });
+      regionsToCleanup.push(region.id);
+
+      // Create test cafe
+      const cafe = await prisma.cafe.create({
+        data: {
+          name: 'Test Cafe for Admin',
+          address: 'Moscow, Test St, 1',
+          city: 'Moscow',
+          latitude: 55.7539,
+          longitude: 37.6208,
+          brandId: testBrandId,
+          regionId: region.id,
+          rating: 0,
+          reviewsCount: 0,
+        },
+      });
+      testCafeId = cafe.id;
+      cafesToCleanup.push(testCafeId);
+
+      // Create another cafe for access tests
+      const otherCafe = await prisma.cafe.create({
+        data: {
+          name: 'Other Cafe',
+          address: 'Moscow, Other St, 2',
+          city: 'Moscow',
+          latitude: 55.754,
+          longitude: 37.6209,
+          brandId: testBrandId,
+          regionId: region.id,
+          rating: 0,
+          reviewsCount: 0,
+        },
+      });
+      otherCafeId = otherCafe.id;
+      cafesToCleanup.push(otherCafeId);
+
+      // Create CAFE_ADMIN
+      cafeAdminToken = await createCafeAdmin(
+        getTestFactoriesDeps(),
+        systemAdminToken,
+        testCafeId,
+        testBrandId,
+      );
+    });
+
+    describe('GET /cafes/my', () => {
+      it('should return cafe for CAFE_ADMIN', async () => {
+        const response = await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/cafes/my')
+          .set('Authorization', `Bearer ${cafeAdminToken}`)
+          .expect(200);
+
+        const body = response.body as CafeResponseDto;
+        expect(body.id).toBe(testCafeId);
+        expect(body.name).toBe('Test Cafe for Admin');
+      });
+
+      it('should return 403 for non-CAFE_ADMIN', async () => {
+        const brandAdminToken = await createBrandAdmin(
+          getTestFactoriesDeps(),
+          systemAdminToken,
+          testBrandId,
+        );
+
+        await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/cafes/my')
+          .set('Authorization', `Bearer ${brandAdminToken}`)
+          .expect(403);
+      });
+
+      it('should return 401 for unauthenticated request', async () => {
+        await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/cafes/my')
+          .expect(401);
+      });
+    });
+
+    describe('PATCH /cafes/:id for CAFE_ADMIN', () => {
+      it('should update cafe as CAFE_ADMIN', async () => {
+        const response = await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .patch(`/cafes/${testCafeId}`)
+          .set('Authorization', `Bearer ${cafeAdminToken}`)
+          .send({
+            name: 'Updated by Cafe Admin',
+            description: 'Updated description',
+          })
+          .expect(200);
+
+        const body = response.body as CafeResponseDto;
+        expect(body.id).toBe(testCafeId);
+        expect(body.name).toBe('Updated by Cafe Admin');
+        expect(body.description).toBe('Updated description');
+      });
+
+      it('should return 403 when CAFE_ADMIN tries to update other cafe', async () => {
+        await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .patch(`/cafes/${otherCafeId}`)
+          .set('Authorization', `Bearer ${cafeAdminToken}`)
+          .send({
+            name: 'Try to update',
+          })
+          .expect(403);
+      });
+
+      it('should return 403 when CAFE_ADMIN tries to change brandId', async () => {
+        // Create another brand
+        const otherBrand = await prisma.brand.create({
+          data: {
+            name: 'Other Brand',
+            email: 'other@brand.com',
+            phone: '+7 (999) 123-45-68',
+            address: '456 Main St',
+            status: BrandStatus.ACTIVE,
+            isVerified: true,
+            verifiedAt: new Date(),
+          },
+        });
+        brandsToCleanup.push(otherBrand.id);
+
+        await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .patch(`/cafes/${testCafeId}`)
+          .set('Authorization', `Bearer ${cafeAdminToken}`)
+          .send({
+            brandId: otherBrand.id,
+          })
+          .expect(403);
+      });
+    });
+
+    describe('DELETE /cafes/:id for CAFE_ADMIN', () => {
+      it('should return 403 when CAFE_ADMIN tries to delete cafe', async () => {
+        // Create a separate cafe for this test
+        const deleteTestCafe = await prisma.cafe.create({
+          data: {
+            name: 'Cafe for Delete Test',
+            address: 'Moscow, Delete St, 1',
+            city: 'Moscow',
+            latitude: 55.7539,
+            longitude: 37.6208,
+            brandId: testBrandId,
+            regionId: (await prisma.region.findFirst({
+              where: { name: 'Cafe Admin Region' },
+            }))!.id,
+            rating: 0,
+            reviewsCount: 0,
+          },
+        });
+        cafesToCleanup.push(deleteTestCafe.id);
+
+        // Create CAFE_ADMIN for this cafe
+        const deleteTestCafeAdminToken = await createCafeAdmin(
+          getTestFactoriesDeps(),
+          systemAdminToken,
+          deleteTestCafe.id,
+          testBrandId,
+        );
+
+        await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .delete(`/cafes/${deleteTestCafe.id}`)
+          .set('Authorization', `Bearer ${deleteTestCafeAdminToken}`)
+          .expect(403);
+      });
     });
   });
 });

@@ -83,6 +83,35 @@ export class CafesController {
     return this.cafesService.findList(query);
   }
 
+  @Get('my')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get my cafe (CAFE_ADMIN only)',
+    description:
+      'Returns the cafe assigned to the current CAFE_ADMIN. Requires CAFE_ADMIN role.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Cafe details',
+    type: CafeResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - CAFE_ADMIN role required',
+  })
+  @ApiResponse({ status: 404, description: 'Cafe not found or not assigned' })
+  async findMyCafe(
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<CafeResponseDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    return this.cafesService.findMyCafe(keycloakId);
+  }
+
   @Get(':id')
   @Public()
   @ApiOperation({ summary: 'Get cafe by ID' })
@@ -100,7 +129,10 @@ export class CafesController {
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Update cafe (BRAND_ADMIN of cafe brand or SYSTEM_ADMIN)',
+    summary:
+      'Update cafe (BRAND_ADMIN of cafe brand, CAFE_ADMIN of this cafe, or SYSTEM_ADMIN)',
+    description:
+      'CAFE_ADMIN can update their assigned cafe but cannot change brandId.',
   })
   @ApiResponse({
     status: 200,
@@ -110,7 +142,8 @@ export class CafesController {
   @ApiResponse({ status: 400, description: 'Bad request - validation error' })
   @ApiResponse({
     status: 403,
-    description: 'Forbidden - BRAND_ADMIN or SYSTEM_ADMIN role required',
+    description:
+      'Forbidden - BRAND_ADMIN, CAFE_ADMIN, or SYSTEM_ADMIN role required. CAFE_ADMIN cannot change brandId.',
   })
   @ApiResponse({ status: 404, description: 'Cafe not found' })
   async update(
@@ -131,7 +164,9 @@ export class CafesController {
   @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
-    summary: 'Delete cafe (BRAND_ADMIN of cafe brand or SYSTEM_ADMIN)',
+    summary: 'Delete cafe (BRAND_ADMIN of cafe brand or SYSTEM_ADMIN only)',
+    description:
+      'CAFE_ADMIN cannot delete cafes. Only BRAND_ADMIN and SYSTEM_ADMIN can delete.',
   })
   @ApiResponse({ status: 204, description: 'Cafe deleted' })
   @ApiResponse({

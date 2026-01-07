@@ -16,6 +16,9 @@ import { FileValidator } from '../storage/utils/file-validator';
 import { WorkersService } from '../workers/workers.service';
 import { ApiKeyResponseDto } from './dto/api-key-response.dto';
 import { CreateApiKeyResponseDto } from './dto/create-api-key-response.dto';
+import { CafeResponseDto } from '../cafes/dto/cafe-response.dto';
+import { BrandStatsDto } from './dto/brand-stats.dto';
+import { BrandReportDto } from './dto/brand-report.dto';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -1171,6 +1174,196 @@ export class BrandsService {
       settings: brand.settings as Record<string, unknown> | undefined,
       createdAt: brand.createdAt,
       updatedAt: brand.updatedAt,
+    };
+  }
+
+  /**
+   * Get brand ID for BRAND_ADMIN
+   */
+  private async getBrandAdminBrandId(keycloakId: string): Promise<string> {
+    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    if (!worker) {
+      throw new ForbiddenException('Worker account not found');
+    }
+
+    if (worker.role !== WorkerRole.BRAND_ADMIN) {
+      throw new ForbiddenException('Only BRAND_ADMIN can access this endpoint');
+    }
+
+    if (!worker.brandId) {
+      throw new NotFoundException('BRAND_ADMIN is not assigned to any brand');
+    }
+
+    return worker.brandId;
+  }
+
+  /**
+   * Get cafes for BRAND_ADMIN's brand
+   */
+  async getMyBrandCafes(keycloakId: string): Promise<CafeResponseDto[]> {
+    const brandId = await this.getBrandAdminBrandId(keycloakId);
+
+    const cafes = await this.prisma.cafe.findMany({
+      where: {
+        brandId,
+        deletedAt: null,
+      },
+      include: {
+        brand: {
+          select: {
+            name: true,
+          },
+        },
+        region: {
+          select: {
+            name: true,
+            country: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return cafes.map((cafe) => ({
+      id: cafe.id,
+      name: cafe.name,
+      description: cafe.description || undefined,
+      address: cafe.address,
+      city: cafe.city,
+      street: cafe.street || undefined,
+      latitude: cafe.latitude,
+      longitude: cafe.longitude,
+      photos: cafe.photos,
+      rating: cafe.rating || 0,
+      reviewsCount: cafe.reviewsCount,
+      brandId: cafe.brandId,
+      brandName: cafe.brand?.name,
+      regionId: cafe.regionId,
+      regionName: cafe.region?.name,
+      cafeApiUrl: cafe.cafeApiUrl || undefined,
+      createdAt: cafe.createdAt,
+      updatedAt: cafe.updatedAt,
+    }));
+  }
+
+  /**
+   * Get brand statistics for BRAND_ADMIN
+   */
+  async getMyBrandStats(keycloakId: string): Promise<BrandStatsDto> {
+    const brandId = await this.getBrandAdminBrandId(keycloakId);
+
+    const cafes = await this.prisma.cafe.findMany({
+      where: {
+        brandId,
+        deletedAt: null,
+      },
+      include: {
+        region: {
+          select: {
+            name: true,
+            country: true,
+          },
+        },
+      },
+    });
+
+    const totalCafes = cafes.length;
+    const activeCafes = cafes.length; // All non-deleted cafes are considered active
+    const totalReviews = cafes.reduce(
+      (sum, cafe) => sum + cafe.reviewsCount,
+      0,
+    );
+    const averageRating =
+      cafes.length > 0
+        ? cafes.reduce((sum, cafe) => sum + (cafe.rating || 0), 0) /
+          cafes.length
+        : 0;
+
+    const cafesByCity: Record<string, number> = {};
+    const cafesByRegion: Record<string, number> = {};
+
+    cafes.forEach((cafe) => {
+      if (cafe.city) {
+        cafesByCity[cafe.city] = (cafesByCity[cafe.city] || 0) + 1;
+      }
+      if (cafe.region?.name) {
+        cafesByRegion[cafe.region.name] =
+          (cafesByRegion[cafe.region.name] || 0) + 1;
+      }
+    });
+
+    return {
+      totalCafes,
+      activeCafes,
+      averageRating: Math.round(averageRating * 100) / 100,
+      totalReviews,
+      cafesByCity,
+      cafesByRegion,
+    };
+  }
+
+  /**
+   * Get brand reports for BRAND_ADMIN
+   */
+  async getMyBrandReports(keycloakId: string): Promise<BrandReportDto> {
+    const brandId = await this.getBrandAdminBrandId(keycloakId);
+
+    const brand = await this.prisma.brand.findUnique({
+      where: { id: brandId },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        isVerified: true,
+      },
+    });
+
+    if (!brand) {
+      throw new NotFoundException(`Brand with ID ${brandId} not found`);
+    }
+
+    const stats = await this.getMyBrandStats(keycloakId);
+
+    const cafes = await this.prisma.cafe.findMany({
+      where: {
+        brandId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        city: true,
+        rating: true,
+        reviewsCount: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      brand: {
+        id: brand.id,
+        name: brand.name,
+        status: brand.status,
+        isVerified: brand.isVerified,
+      },
+      statistics: {
+        totalCafes: stats.totalCafes,
+        activeCafes: stats.activeCafes,
+        averageRating: stats.averageRating,
+        totalReviews: stats.totalReviews,
+      },
+      cafes: cafes.map((cafe) => ({
+        id: cafe.id,
+        name: cafe.name,
+        address: cafe.address,
+        city: cafe.city,
+        rating: cafe.rating || 0,
+        reviewsCount: cafe.reviewsCount,
+        createdAt: cafe.createdAt,
+      })),
+      generatedAt: new Date(),
     };
   }
 }

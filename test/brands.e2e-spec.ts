@@ -5,12 +5,15 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { BrandStatus, WorkerRole } from '@prisma/client';
 import { BrandResponseDto } from '../src/modules/brands/dto/brand-response.dto';
+import { BrandStatsDto } from '../src/modules/brands/dto/brand-stats.dto';
+import { BrandReportDto } from '../src/modules/brands/dto/brand-report.dto';
 import { KeycloakService } from '../src/modules/auth/services/keycloak.service';
 import {
   createSystemAdmin,
   createBrandAdmin,
   createRegularUser,
 } from './helpers/test-factories';
+import { CafeResponseDto } from '../src/modules/cafes/dto/cafe-response.dto';
 
 describe('Brands Endpoints (e2e)', () => {
   let app: INestApplication;
@@ -1813,6 +1816,292 @@ describe('Brands Endpoints (e2e)', () => {
           reason: 'Try to suspend again',
         })
         .expect(400);
+    });
+  });
+
+  describe('BRAND_ADMIN endpoints', () => {
+    let testBrandId: string;
+    let brandAdminToken: string;
+    let systemAdminToken: string;
+    const testCafeIds: string[] = [];
+    let testRegionId: string;
+
+    beforeAll(async () => {
+      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
+
+      // Create test brand
+      const brand = await prisma.brand.create({
+        data: {
+          name: 'Test Brand for Admin',
+          email: 'admin@brand.com',
+          phone: '+7 (999) 123-45-67',
+          address: '123 Main St',
+          status: BrandStatus.ACTIVE,
+          isVerified: true,
+          verifiedAt: new Date(),
+        },
+      });
+      testBrandId = brand.id;
+      brandsToCleanup.push(testBrandId);
+
+      // Create test region
+      const region = await prisma.region.create({
+        data: {
+          name: 'Test Region',
+          country: 'Russia',
+        },
+      });
+      testRegionId = region.id;
+
+      // Create test cafes
+      const cafe1 = await prisma.cafe.create({
+        data: {
+          name: 'Cafe 1',
+          address: 'Moscow, Test St, 1',
+          city: 'Moscow',
+          latitude: 55.7539,
+          longitude: 37.6208,
+          brandId: testBrandId,
+          regionId: testRegionId,
+          rating: 4.5,
+          reviewsCount: 10,
+        },
+      });
+      testCafeIds.push(cafe1.id);
+
+      const cafe2 = await prisma.cafe.create({
+        data: {
+          name: 'Cafe 2',
+          address: 'Saint Petersburg, Test St, 2',
+          city: 'Saint Petersburg',
+          latitude: 59.9343,
+          longitude: 30.3351,
+          brandId: testBrandId,
+          regionId: testRegionId,
+          rating: 4.0,
+          reviewsCount: 5,
+        },
+      });
+      testCafeIds.push(cafe2.id);
+
+      // Create BRAND_ADMIN
+      brandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        systemAdminToken,
+        testBrandId,
+      );
+    });
+
+    describe('GET /brands/my/cafes', () => {
+      it('should return cafes for BRAND_ADMIN', async () => {
+        const response = await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/cafes')
+          .set('Authorization', `Bearer ${brandAdminToken}`)
+          .expect(200);
+
+        const body = response.body as CafeResponseDto[];
+        expect(Array.isArray(body)).toBe(true);
+        expect(body.length).toBeGreaterThanOrEqual(2);
+        body.forEach((cafe) => {
+          expect(cafe.brandId).toBe(testBrandId);
+        });
+      });
+
+      it('should return 403 for non-BRAND_ADMIN', async () => {
+        const userToken = await createRegularUser(getTestFactoriesDeps());
+
+        await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/cafes')
+          .set('Authorization', `Bearer ${userToken}`)
+          .expect(403);
+      });
+
+      it('should return 401 for unauthenticated request', async () => {
+        await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/cafes')
+          .expect(401);
+      });
+    });
+
+    describe('GET /brands/my/stats', () => {
+      it('should return brand statistics for BRAND_ADMIN', async () => {
+        const response = await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/stats')
+          .set('Authorization', `Bearer ${brandAdminToken}`)
+          .expect(200);
+
+        const body = response.body as BrandStatsDto;
+        expect(body).toHaveProperty('totalCafes');
+        expect(body).toHaveProperty('activeCafes');
+        expect(body).toHaveProperty('averageRating');
+        expect(body).toHaveProperty('totalReviews');
+        expect(body).toHaveProperty('cafesByCity');
+        expect(body).toHaveProperty('cafesByRegion');
+        expect(body.totalCafes).toBeGreaterThanOrEqual(2);
+        expect(body.averageRating).toBeGreaterThanOrEqual(0);
+        expect(body.totalReviews).toBeGreaterThanOrEqual(15);
+      });
+
+      it('should return 403 for non-BRAND_ADMIN', async () => {
+        const userToken = await createRegularUser(getTestFactoriesDeps());
+
+        await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/stats')
+          .set('Authorization', `Bearer ${userToken}`)
+          .expect(403);
+      });
+    });
+
+    describe('GET /brands/my/reports', () => {
+      it('should return brand report for BRAND_ADMIN', async () => {
+        const response = await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/reports')
+          .set('Authorization', `Bearer ${brandAdminToken}`)
+          .expect(200);
+
+        const body = response.body as BrandReportDto;
+        expect(body).toHaveProperty('brand');
+        expect(body).toHaveProperty('statistics');
+        expect(body).toHaveProperty('cafes');
+        expect(body).toHaveProperty('generatedAt');
+        expect(body.brand.id).toBe(testBrandId);
+        expect(body.statistics.totalCafes).toBeGreaterThanOrEqual(2);
+        expect(Array.isArray(body.cafes)).toBe(true);
+        expect(body.cafes.length).toBeGreaterThanOrEqual(2);
+      });
+
+      it('should return 403 for non-BRAND_ADMIN', async () => {
+        const userToken = await createRegularUser(getTestFactoriesDeps());
+
+        await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/reports')
+          .set('Authorization', `Bearer ${userToken}`)
+          .expect(403);
+      });
+    });
+
+    describe('GET /brands/my/reports/export/:format', () => {
+      it('should export report as Excel', async () => {
+        const response = await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/reports/export/excel')
+          .set('Authorization', `Bearer ${brandAdminToken}`)
+          .expect(200)
+          .expect(
+            'Content-Type',
+            /application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/,
+          );
+
+        expect(response.headers['content-disposition']).toContain('.xlsx');
+        expect(response.headers['content-length']).toBeDefined();
+        expect(
+          parseInt(response.headers['content-length'] || '0'),
+        ).toBeGreaterThan(0);
+      });
+
+      it('should export report as PDF', async () => {
+        const response = await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/reports/export/pdf')
+          .set('Authorization', `Bearer ${brandAdminToken}`)
+          .expect(200);
+
+        expect(response.headers['content-type']).toContain('application/pdf');
+        expect(response.headers['content-disposition']).toContain('.pdf');
+        expect(Buffer.isBuffer(response.body)).toBe(true);
+        if (Buffer.isBuffer(response.body)) {
+          expect(response.body.length).toBeGreaterThan(0);
+        }
+      });
+
+      it('should export report as DOCX', async () => {
+        const response = await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/reports/export/docx')
+          .set('Authorization', `Bearer ${brandAdminToken}`)
+          .expect(200)
+          .expect(
+            'Content-Type',
+            /application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document/,
+          );
+
+        expect(response.headers['content-disposition']).toContain('.docx');
+        expect(response.headers['content-length']).toBeDefined();
+        expect(
+          parseInt(response.headers['content-length'] || '0'),
+        ).toBeGreaterThan(0);
+      });
+
+      it('should export report as CSV', async () => {
+        const response = await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/reports/export/csv')
+          .set('Authorization', `Bearer ${brandAdminToken}`)
+          .expect(200)
+          .expect('Content-Type', /text\/csv/);
+
+        expect(response.headers['content-disposition']).toContain('.csv');
+        expect(response.headers['content-length']).toBeDefined();
+        const contentLengthStr = response.headers['content-length'];
+        const contentLength =
+          typeof contentLengthStr === 'string'
+            ? parseInt(contentLengthStr, 10)
+            : 0;
+        expect(contentLength).toBeGreaterThan(0);
+
+        // For CSV, we can check text content
+        if (response.text) {
+          expect(response.text).toContain('Name,Address,City,Rating,Reviews');
+          expect(response.text).toContain('Cafe 1');
+          expect(response.text).toContain('Cafe 2');
+        }
+      });
+
+      it('should return 400 for invalid format', async () => {
+        await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/reports/export/invalid')
+          .set('Authorization', `Bearer ${brandAdminToken}`)
+          .expect(400);
+      });
+
+      it('should return 403 for non-BRAND_ADMIN', async () => {
+        const userToken = await createRegularUser(getTestFactoriesDeps());
+
+        await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/reports/export/excel')
+          .set('Authorization', `Bearer ${userToken}`)
+          .expect(403);
+      });
+
+      it('should return 401 for unauthenticated request', async () => {
+        await request(
+          app.getHttpServer() as unknown as Parameters<typeof request>[0],
+        )
+          .get('/brands/my/reports/export/excel')
+          .expect(401);
+      });
     });
   });
 });

@@ -14,7 +14,9 @@ import {
   UploadedFile,
   BadRequestException,
   Request,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -43,11 +45,18 @@ import { BrandStatus } from '@prisma/client';
 import { AuthGuard } from 'nest-keycloak-connect';
 import { Public } from 'nest-keycloak-connect';
 import { FileValidator } from '../storage/utils/file-validator';
+import { BrandStatsDto } from './dto/brand-stats.dto';
+import { BrandReportDto } from './dto/brand-report.dto';
+import { CafeResponseDto } from '../cafes/dto/cafe-response.dto';
+import { ExportService, ExportFormat } from './services/export.service';
 
 @ApiTags('Brands')
 @Controller('brands')
 export class BrandsController {
-  constructor(private readonly brandsService: BrandsService) {}
+  constructor(
+    private readonly brandsService: BrandsService,
+    private readonly exportService: ExportService,
+  ) {}
 
   @Post()
   @UseGuards(AuthGuard)
@@ -675,5 +684,192 @@ export class BrandsController {
       keycloakId,
       suspendDto.reason,
     );
+  }
+
+  @Get('my/cafes')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get cafes for my brand (BRAND_ADMIN only)',
+    description:
+      "Returns list of cafes belonging to the current BRAND_ADMIN's brand.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of cafes',
+    type: [CafeResponseDto],
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - BRAND_ADMIN role required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Brand not found or BRAND_ADMIN not assigned to brand',
+  })
+  async getMyBrandCafes(
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<CafeResponseDto[]> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    return this.brandsService.getMyBrandCafes(keycloakId);
+  }
+
+  @Get('my/stats')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get brand statistics (BRAND_ADMIN only)',
+    description:
+      "Returns statistics for the current BRAND_ADMIN's brand including total cafes, average rating, reviews count, and distribution by city/region.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Brand statistics',
+    type: BrandStatsDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - BRAND_ADMIN role required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Brand not found or BRAND_ADMIN not assigned to brand',
+  })
+  async getMyBrandStats(
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<BrandStatsDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    return this.brandsService.getMyBrandStats(keycloakId);
+  }
+
+  @Get('my/reports')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get brand reports (BRAND_ADMIN only)',
+    description:
+      "Returns comprehensive report for the current BRAND_ADMIN's brand including brand info, statistics, and list of cafes.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Brand report',
+    type: BrandReportDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - BRAND_ADMIN role required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Brand not found or BRAND_ADMIN not assigned to brand',
+  })
+  async getMyBrandReports(
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<BrandReportDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    return this.brandsService.getMyBrandReports(keycloakId);
+  }
+
+  @Get('my/reports/export/:format')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Export brand report (BRAND_ADMIN only)',
+    description:
+      'Exports brand report in the specified format (excel, pdf, docx, csv).',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Report exported successfully',
+    content: {
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+        schema: { type: 'string', format: 'binary' },
+      },
+      'application/pdf': {
+        schema: { type: 'string', format: 'binary' },
+      },
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        {
+          schema: { type: 'string', format: 'binary' },
+        },
+      'text/csv': {
+        schema: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - invalid format',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - BRAND_ADMIN role required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Brand not found or BRAND_ADMIN not assigned to brand',
+  })
+  async exportMyBrandReport(
+    @Param('format') format: string,
+    @Request() req: { user?: { sub?: string } },
+    @Res() res: Response,
+  ): Promise<void> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    // Validate format
+    const exportFormat = format.toLowerCase() as ExportFormat;
+    if (!Object.values(ExportFormat).includes(exportFormat)) {
+      throw new BadRequestException(
+        `Invalid format. Supported formats: ${Object.values(ExportFormat).join(', ')}`,
+      );
+    }
+
+    // Get report data
+    const report = await this.brandsService.getMyBrandReports(keycloakId);
+
+    // Export to requested format
+    let buffer: Buffer;
+    switch (exportFormat) {
+      case ExportFormat.EXCEL:
+        buffer = await this.exportService.exportToExcel(report);
+        break;
+      case ExportFormat.PDF:
+        buffer = await this.exportService.exportToPdf(report);
+        break;
+      case ExportFormat.DOCX:
+        buffer = await this.exportService.exportToDocx(report);
+        break;
+      case ExportFormat.CSV:
+        buffer = this.exportService.exportToCsv(report);
+        break;
+      default:
+        throw new BadRequestException('Unsupported export format');
+    }
+
+    // Set response headers
+    const mimeType = this.exportService.getMimeType(exportFormat);
+    const extension = this.exportService.getFileExtension(exportFormat);
+    const filename = `brand-report-${report.brand.name.replace(/[^a-z0-9]/gi, '_')}-${Date.now()}.${extension}`;
+
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length.toString());
+
+    res.send(buffer);
   }
 }
