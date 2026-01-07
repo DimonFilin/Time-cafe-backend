@@ -5,11 +5,14 @@ import {
   Patch,
   Delete,
   Body,
+  Param,
   HttpCode,
   HttpStatus,
   Request,
   UnauthorizedException,
   NotFoundException,
+  BadRequestException,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,13 +20,16 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
-import { Public } from 'nest-keycloak-connect';
+import { UseGuards } from '@nestjs/common';
+import { AuthGuard } from 'nest-keycloak-connect';
 import { WorkersService } from './workers.service';
 import { KeycloakService } from '../auth/services/keycloak.service';
 import { RegisterWorkerDto } from './dto/register-worker.dto';
 import { UpdateWorkerDto } from './dto/update-worker.dto';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto';
 import { WorkerProfileDto } from './dto/worker-profile.dto';
+import { WorkerListResponseDto } from './dto/worker-list-response.dto';
+import { WorkerListQueryDto } from './dto/worker-list-query.dto';
 
 @ApiTags('Workers')
 @Controller('auth/workers')
@@ -34,16 +40,30 @@ export class WorkersController {
   ) {}
 
   @Post()
-  @Public()
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Register a new worker',
-    description: 'Creates a new worker account in Keycloak and database',
+    description:
+      'Creates a new worker account. Requires SYSTEM_ADMIN or BRAND_ADMIN role. For CAFE_ADMIN, validates cafe exists and belongs to brand.',
   })
   @ApiResponse({
     status: 201,
     description: 'Worker successfully registered',
     type: AuthResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - authentication required',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - SYSTEM_ADMIN or BRAND_ADMIN role required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Cafe or brand not found',
   })
   @ApiResponse({
     status: 409,
@@ -53,8 +73,16 @@ export class WorkersController {
     status: 400,
     description: 'Validation error',
   })
-  async register(@Body() dto: RegisterWorkerDto): Promise<AuthResponseDto> {
-    return this.workersService.register(dto);
+  async register(
+    @Body() dto: RegisterWorkerDto,
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<AuthResponseDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    return this.workersService.register(keycloakId, dto);
   }
 
   @Get('me')
@@ -184,6 +212,175 @@ export class WorkersController {
 
     await this.keycloakService.deleteUser(keycloakId);
     await this.workersService.softDelete(worker.id);
+
+    return { message: 'Worker account deleted successfully' };
+  }
+}
+
+@ApiTags('Admin Workers')
+@Controller('admin/workers')
+@UseGuards(AuthGuard)
+@ApiBearerAuth()
+export class AdminWorkersController {
+  constructor(private readonly workersService: WorkersService) {}
+
+  @Get()
+  @ApiOperation({
+    summary: 'Get all workers (SYSTEM_ADMIN only)',
+    description: 'Returns paginated list of all workers',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of workers',
+    type: WorkerListResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - SYSTEM_ADMIN role required',
+  })
+  async findAll(
+    @Query() query: WorkerListQueryDto,
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<WorkerListResponseDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    return this.workersService.findAll(keycloakId, query);
+  }
+
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Get worker by ID (SYSTEM_ADMIN only)',
+    description: 'Returns worker details by ID',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Worker details',
+    type: WorkerProfileDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - SYSTEM_ADMIN role required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Worker not found',
+  })
+  async findOne(
+    @Param('id') id: string,
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<WorkerProfileDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    const worker = await this.workersService.findOneById(keycloakId, id);
+    if (!worker) {
+      throw new NotFoundException('Worker not found');
+    }
+
+    return {
+      id: worker.id,
+      email: worker.email,
+      firstName: worker.firstName,
+      lastName: worker.lastName,
+      role: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      createdAt: worker.createdAt,
+    };
+  }
+
+  @Patch(':id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update worker (SYSTEM_ADMIN only)',
+    description: 'Updates worker details',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Worker updated successfully',
+    type: WorkerProfileDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - SYSTEM_ADMIN role required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Worker not found',
+  })
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateWorkerDto,
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<WorkerProfileDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    const updated = await this.workersService.updateById(keycloakId, id, dto);
+
+    return {
+      id: updated.id,
+      email: updated.email,
+      firstName: updated.firstName,
+      lastName: updated.lastName,
+      role: updated.role,
+      brandId: updated.brandId ?? undefined,
+      cafeId: updated.cafeId ?? undefined,
+      createdAt: updated.createdAt,
+    };
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete worker (SYSTEM_ADMIN only)',
+    description: 'Soft deletes worker account',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Worker deleted successfully',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - SYSTEM_ADMIN role required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Worker not found',
+  })
+  async delete(
+    @Param('id') id: string,
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<{ message: string }> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    await this.workersService.deleteById(keycloakId, id);
 
     return { message: 'Worker account deleted successfully' };
   }

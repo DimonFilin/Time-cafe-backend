@@ -3,13 +3,16 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { BrandStatus, WorkerRole } from '@prisma/client';
+import { BrandStatus } from '@prisma/client';
 import { CafeResponseDto } from '../src/modules/cafes/dto/cafe-response.dto';
 import { CafeListResponseDto } from '../src/modules/cafes/dto/cafe-list-response.dto';
+import { KeycloakService } from '../src/modules/auth/services/keycloak.service';
+import { createSystemAdmin, createBrandAdmin } from './helpers/test-factories';
 
 describe('Cafes Endpoints (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let keycloakService: KeycloakService;
   const cafesToCleanup: string[] = [];
   const brandsToCleanup: string[] = [];
   const regionsToCleanup: string[] = [];
@@ -30,6 +33,7 @@ describe('Cafes Endpoints (e2e)', () => {
 
     await app.init();
     prisma = app.get<PrismaService>(PrismaService);
+    keycloakService = app.get<KeycloakService>(KeycloakService);
   });
 
   afterAll(async () => {
@@ -61,6 +65,13 @@ describe('Cafes Endpoints (e2e)', () => {
     }
 
     await app.close();
+  });
+
+  // Helper to get test factories dependencies
+  const getTestFactoriesDeps = () => ({
+    app,
+    prisma,
+    keycloakService,
   });
 
   describe('POST /cafes', () => {
@@ -95,66 +106,15 @@ describe('Cafes Endpoints (e2e)', () => {
       testRegionId = region.id;
       regionsToCleanup.push(testRegionId);
 
-      // Register BRAND_ADMIN
-      const adminEmail = `cafeadmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Cafe',
-          lastName: 'Admin',
-          role: WorkerRole.BRAND_ADMIN,
-          brandId: testBrandId,
-        });
+      // Create SYSTEM_ADMIN first
+      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
 
-      if (adminResponse.status === 201) {
-        brandAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        brandAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
-
-      // Register SYSTEM_ADMIN
-      const systemAdminEmail = `systemadmin-cafe-${Date.now()}@test.com`;
-      const systemAdminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: systemAdminEmail,
-          password: 'Admin123!@#',
-          firstName: 'System',
-          lastName: 'Admin',
-          role: WorkerRole.SYSTEM_ADMIN,
-        });
-
-      if (systemAdminResponse.status === 201) {
-        systemAdminToken = (systemAdminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: systemAdminEmail,
-            password: 'Admin123!@#',
-          });
-        systemAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      // Create BRAND_ADMIN using helper function
+      brandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        systemAdminToken,
+        testBrandId,
+      );
     });
 
     it('should create cafe as BRAND_ADMIN', async () => {
@@ -815,35 +775,14 @@ describe('Cafes Endpoints (e2e)', () => {
       testCafeId = cafe.id;
       cafesToCleanup.push(testCafeId);
 
-      const adminEmail = `updatecafeadmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Update',
-          lastName: 'Admin',
-          role: WorkerRole.BRAND_ADMIN,
-          brandId: testBrandId,
-        });
-
-      if (adminResponse.status === 201) {
-        brandAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        brandAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      const tempSystemAdminToken = await createSystemAdmin(
+        getTestFactoriesDeps(),
+      );
+      brandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        tempSystemAdminToken,
+        testBrandId,
+      );
     });
 
     it('should update cafe as BRAND_ADMIN', async () => {
@@ -881,36 +820,14 @@ describe('Cafes Endpoints (e2e)', () => {
       });
       brandsToCleanup.push(otherBrand.id);
 
-      const otherAdminEmail = `otherbrandadmin-${Date.now()}@test.com`;
-      const otherAdminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: otherAdminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Other',
-          lastName: 'Admin',
-          role: WorkerRole.BRAND_ADMIN,
-          brandId: otherBrand.id,
-        });
-
-      let otherAdminToken: string;
-      if (otherAdminResponse.status === 201) {
-        otherAdminToken = (otherAdminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: otherAdminEmail,
-            password: 'Admin123!@#',
-          });
-        otherAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      const tempSystemAdminToken = await createSystemAdmin(
+        getTestFactoriesDeps(),
+      );
+      const otherAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        tempSystemAdminToken,
+        otherBrand.id,
+      );
 
       await request(
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
@@ -925,35 +842,7 @@ describe('Cafes Endpoints (e2e)', () => {
 
     it('should update cafe brandId and check new brand is active (SYSTEM_ADMIN)', async () => {
       // Get SYSTEM_ADMIN token
-      const systemAdminEmail = `systemadmin-update-${Date.now()}@test.com`;
-      const systemAdminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: systemAdminEmail,
-          password: 'Admin123!@#',
-          firstName: 'System',
-          lastName: 'Admin',
-          role: WorkerRole.SYSTEM_ADMIN,
-        });
-
-      let systemAdminToken: string;
-      if (systemAdminResponse.status === 201) {
-        systemAdminToken = (systemAdminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: systemAdminEmail,
-            password: 'Admin123!@#',
-          });
-        systemAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      const systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
 
       // Create another active brand
       const newBrand = await prisma.brand.create({
@@ -985,35 +874,7 @@ describe('Cafes Endpoints (e2e)', () => {
 
     it('should return 400 when updating to inactive brand', async () => {
       // Get SYSTEM_ADMIN token for this test
-      const systemAdminEmail = `systemadmin-inactive-${Date.now()}@test.com`;
-      const systemAdminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: systemAdminEmail,
-          password: 'Admin123!@#',
-          firstName: 'System',
-          lastName: 'Admin',
-          role: WorkerRole.SYSTEM_ADMIN,
-        });
-
-      let systemAdminToken: string;
-      if (systemAdminResponse.status === 201) {
-        systemAdminToken = (systemAdminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: systemAdminEmail,
-            password: 'Admin123!@#',
-          });
-        systemAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      const systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
 
       // Create separate cafe for this test
       const inactiveBrandCafe = await prisma.cafe.create({
@@ -1174,35 +1035,14 @@ describe('Cafes Endpoints (e2e)', () => {
       });
       testCafeId = cafe.id;
 
-      const adminEmail = `deletecafeadmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Delete',
-          lastName: 'Admin',
-          role: WorkerRole.BRAND_ADMIN,
-          brandId: testBrandId,
-        });
-
-      if (adminResponse.status === 201) {
-        brandAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        brandAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      const tempSystemAdminToken = await createSystemAdmin(
+        getTestFactoriesDeps(),
+      );
+      brandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        tempSystemAdminToken,
+        testBrandId,
+      );
     });
 
     it('should soft delete cafe as BRAND_ADMIN', async () => {

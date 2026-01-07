@@ -53,9 +53,18 @@ export class BrandsService {
   }
 
   /**
-   * Create brand
+   * Create brand (SYSTEM_ADMIN only)
    */
-  async create(createBrandDto: CreateBrandDto): Promise<BrandResponseDto> {
+  async create(
+    keycloakId: string,
+    createBrandDto: CreateBrandDto,
+  ): Promise<BrandResponseDto> {
+    // Check if user is SYSTEM_ADMIN
+    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    if (!worker || worker.role !== WorkerRole.SYSTEM_ADMIN) {
+      throw new ForbiddenException('Only SYSTEM_ADMIN can create brands');
+    }
+
     const defaultSettings = this.getDefaultSettings();
     const mergedSettings = {
       ...defaultSettings,
@@ -122,10 +131,11 @@ export class BrandsService {
   }
 
   /**
-   * Update brand
+   * Update brand (BRAND_ADMIN of brand or SYSTEM_ADMIN)
    */
   async update(
     id: string,
+    keycloakId: string,
     updateBrandDto: UpdateBrandDto,
   ): Promise<BrandResponseDto> {
     const brand = await this.prisma.brand.findFirst({
@@ -138,6 +148,9 @@ export class BrandsService {
     if (!brand) {
       throw new NotFoundException(`Brand with ID ${id} not found`);
     }
+
+    // Check access rights
+    await this.checkBrandAccess(id, keycloakId);
 
     const updateData: Record<string, unknown> = {};
 

@@ -50,11 +50,12 @@ export class BrandsController {
   constructor(private readonly brandsService: BrandsService) {}
 
   @Post()
-  @Public()
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Create brand',
     description:
-      'Create a new brand. Requires API key (X-API-Key header) or SYSTEM_ADMIN role. Currently accepts API key for future implementation.',
+      'Create a new brand. Requires SYSTEM_ADMIN role. API key support will be added in future.',
   })
   @ApiHeader({
     name: 'X-API-Key',
@@ -70,19 +71,22 @@ export class BrandsController {
   @ApiResponse({ status: 400, description: 'Bad request - validation error' })
   @ApiResponse({
     status: 401,
-    description: 'Unauthorized - invalid API key or missing SYSTEM_ADMIN role',
+    description: 'Unauthorized - authentication required',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - SYSTEM_ADMIN role required',
   })
   async create(
     @Body() createBrandDto: CreateBrandDto,
-    // TODO: Add @Headers('x-api-key') apiKey parameter in step 7 for API key validation
+    @Request() req: { user?: { sub?: string } },
   ): Promise<BrandResponseDto> {
-    // TODO: Implement API key validation in step 7
-    // For now, allow public access (will be restricted when API keys are implemented)
-    // In production, this should check:
-    // 1. Valid API key (X-API-Key header) OR
-    // 2. SYSTEM_ADMIN role from authenticated user
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
 
-    return this.brandsService.create(createBrandDto);
+    return this.brandsService.create(keycloakId, createBrandDto);
   }
 
   @Get()
@@ -115,18 +119,30 @@ export class BrandsController {
   @Patch(':id')
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Update brand' })
+  @ApiOperation({
+    summary: 'Update brand (BRAND_ADMIN of brand or SYSTEM_ADMIN)',
+  })
   @ApiResponse({
     status: 200,
     description: 'Brand updated',
     type: BrandResponseDto,
   })
   @ApiResponse({ status: 404, description: 'Brand not found' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - BRAND_ADMIN or SYSTEM_ADMIN role required',
+  })
   async update(
     @Param('id') id: string,
     @Body() updateBrandDto: UpdateBrandDto,
+    @Request() req: { user?: { sub?: string } },
   ): Promise<BrandResponseDto> {
-    return this.brandsService.update(id, updateBrandDto);
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    return this.brandsService.update(id, keycloakId, updateBrandDto);
   }
 
   @Delete(':id')
@@ -323,7 +339,10 @@ export class BrandsController {
   @Patch(':id/customization')
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Update brand customization (BRAND_ADMIN only)' })
+  @ApiOperation({
+    summary:
+      'Update brand customization (BRAND_ADMIN of brand or SYSTEM_ADMIN)',
+  })
   @ApiResponse({
     status: 200,
     description: 'Brand customization updated successfully',
@@ -331,7 +350,7 @@ export class BrandsController {
   })
   @ApiResponse({
     status: 403,
-    description: 'Forbidden - BRAND_ADMIN role required',
+    description: 'Forbidden - BRAND_ADMIN or SYSTEM_ADMIN role required',
   })
   @ApiResponse({ status: 404, description: 'Brand not found' })
   async updateCustomization(

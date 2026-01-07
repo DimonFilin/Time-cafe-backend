@@ -13,6 +13,7 @@ import { BrandAdminModule } from './modules/brand-admin/brand-admin.module';
 import { SystemModule } from './modules/system/system.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { StorageModule } from './modules/storage/storage.module';
+import { SystemSettingsModule } from './modules/system-settings/system-settings.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { StorageModule } from './modules/storage/storage.module';
     SystemModule,
     PaymentsModule,
     StorageModule,
+    SystemSettingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

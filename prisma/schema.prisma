@@ -22,64 +22,64 @@ enum OrderStatus {
 }
 
 enum TransactionType {
-  PAYMENT       // Платеж картой
-  REFUND        // Возврат средств
+  PAYMENT // Платеж картой
+  REFUND // Возврат средств
 }
 
 enum TransactionStatus {
-  PENDING       // Ожидает обработки
-  PROCESSING    // В процессе
-  COMPLETED     // Успешно завершена
-  FAILED        // Ошибка
-  CANCELLED     // Отменена
+  PENDING // Ожидает обработки
+  PROCESSING // В процессе
+  COMPLETED // Успешно завершена
+  FAILED // Ошибка
+  CANCELLED // Отменена
 }
 
 enum BrandStatus {
-  PENDING       // Ожидает проверки
-  ACTIVE        // Активен
-  SUSPENDED     // Приостановлен
-  REJECTED      // Отклонен
+  PENDING // Ожидает проверки
+  ACTIVE // Активен
+  SUSPENDED // Приостановлен
+  REJECTED // Отклонен
 }
 
 enum DocumentType {
-  REGISTRATION    // Свидетельство о регистрации
-  LICENSE         // Лицензия на деятельность
-  CONTRACT        // Договор с платформой
+  REGISTRATION // Свидетельство о регистрации
+  LICENSE // Лицензия на деятельность
+  CONTRACT // Договор с платформой
   TAX_CERTIFICATE // Справка из налоговой
-  BANK_STATEMENT  // Выписка из банка
-  OTHER           // Другое
+  BANK_STATEMENT // Выписка из банка
+  OTHER // Другое
 }
 
 model WorkerAccount {
-  id          String    @id @default(uuid())
-  keycloakId  String
-  email       String
-  firstName   String
-  lastName    String
-  role        WorkerRole
-  brandId     String?
-  brand       Brand?    @relation(fields: [brandId], references: [id])
-  cafeId      String?
-  cafe        Cafe?     @relation(fields: [cafeId], references: [id])
-  deletedAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id         String     @id @default(uuid())
+  keycloakId String
+  email      String
+  firstName  String
+  lastName   String
+  role       WorkerRole
+  brandId    String?
+  brand      Brand?     @relation(fields: [brandId], references: [id])
+  cafeId     String?
+  cafe       Cafe?      @relation(fields: [cafeId], references: [id])
+  deletedAt  DateTime?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
   @@map("worker_accounts")
 }
 
 model User {
-  id          String   @id @default(uuid())
-  keycloakId  String
-  email       String
-  firstName   String
-  lastName    String
-  phone       String?
-  avatar      String?
-  balance     Decimal  @default(0) @db.Decimal(10, 2)
-  deletedAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String    @id @default(uuid())
+  keycloakId String
+  email      String
+  firstName  String
+  lastName   String
+  phone      String?
+  avatar     String?
+  balance    Decimal   @default(0) @db.Decimal(10, 2)
+  deletedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   orders       Order[]
   reviews      Review[]
@@ -91,48 +91,48 @@ model User {
 }
 
 model Brand {
-  id          String    @id @default(uuid())
-  name        String
-  description String?
-  logo        String?
-  primaryColor String?  @default("#000000")
-  
-  // Customization
-  secondaryColor    String?
-  accentColor       String?
-  backgroundColor   String?
-  textColor         String?
-  fontFamily        String?
-  
-  // Media
-  favicon           String?
-  bannerImage       String?
-  backgroundImage   String?
-  
-  // Contact information
-  website           String?
-  phone             String?
-  email             String?
-  address           String?
-  
-  // Status and verification
-  status            BrandStatus @default(PENDING)
-  isVerified        Boolean     @default(false)
-  verifiedAt        DateTime?
-  
-  // Settings
-  settings          Json?
-  
-  // Soft delete
-  deletedAt         DateTime?
-  
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id           String  @id @default(uuid())
+  name         String
+  description  String?
+  logo         String?
+  primaryColor String? @default("#000000")
 
-  cafes           Cafe[]
-  workerAccounts  WorkerAccount[]
-  legalDocuments  BrandDocument[]
-  apiKeys         BrandApiKey[]
+  // Customization
+  secondaryColor  String?
+  accentColor     String?
+  backgroundColor String?
+  textColor       String?
+  fontFamily      String?
+
+  // Media
+  favicon         String?
+  bannerImage     String?
+  backgroundImage String?
+
+  // Contact information
+  website String?
+  phone   String?
+  email   String?
+  address String?
+
+  // Status and verification
+  status     BrandStatus @default(PENDING)
+  isVerified Boolean     @default(false)
+  verifiedAt DateTime?
+
+  // Settings
+  settings Json?
+
+  // Soft delete
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cafes          Cafe[]
+  workerAccounts WorkerAccount[]
+  legalDocuments BrandDocument[]
+  apiKeys        BrandApiKey[]
 
   @@map("brands")
 }
@@ -150,30 +150,30 @@ model Region {
 }
 
 model Cafe {
-  id          String    @id @default(uuid())
-  name        String
-  description String?
-  address     String
-  city        String
-  street      String?
-  latitude    Float
-  longitude   Float
-  photos      String[]
-  rating      Float?    @default(0)
-  reviewsCount Int      @default(0)
-  brandId     String
-  brand       Brand     @relation(fields: [brandId], references: [id])
-  regionId    String
-  region      Region    @relation(fields: [regionId], references: [id])
-  cafeApiUrl  String?   // URL к локальному сервису кофейни
-  deletedAt   DateTime? // Soft delete
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id           String    @id @default(uuid())
+  name         String
+  description  String?
+  address      String
+  city         String
+  street       String?
+  latitude     Float
+  longitude    Float
+  photos       String[]
+  rating       Float?    @default(0)
+  reviewsCount Int       @default(0)
+  brandId      String
+  brand        Brand     @relation(fields: [brandId], references: [id])
+  regionId     String
+  region       Region    @relation(fields: [regionId], references: [id])
+  cafeApiUrl   String? // URL к локальному сервису кофейни
+  deletedAt    DateTime? // Soft delete
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   workerAccounts WorkerAccount[]
-  orders        Order[]
-  reviews       Review[]
-  appointments  Appointment[]
+  orders         Order[]
+  reviews        Review[]
+  appointments   Appointment[]
 
   @@map("cafes")
 }
@@ -200,7 +200,7 @@ model Review {
   user      User     @relation(fields: [userId], references: [id])
   cafeId    String
   cafe      Cafe     @relation(fields: [cafeId], references: [id])
-  rating    Int      // 1-5
+  rating    Int // 1-5
   comment   String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -215,7 +215,7 @@ model Appointment {
   cafeId    String
   cafe      Cafe     @relation(fields: [cafeId], references: [id])
   dateTime  DateTime
-  duration  Int      // в минутах
+  duration  Int // в минутах
   status    String   @default("pending") // pending, confirmed, cancelled, completed
   qrCode    String?  @unique
   createdAt DateTime @default(now())
@@ -225,55 +225,55 @@ model Appointment {
 }
 
 model PaymentCard {
-  id            String   @id @default(uuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id])
-  
-  last4Digits   String   // Последние 4 цифры (например, "1234")
-  cardType      String   // "visa", "mastercard", "mir"
-  expiryMonth   Int      // Месяц истечения (1-12)
-  expiryYear    Int      // Год истечения
-  
-  providerToken String?  // Токен для повторных платежей (симуляция Stripe токена)
-  
-  isDefault     Boolean  @default(false)
-  isActive      Boolean  @default(true)
-  holderName    String?  // Имя держателя карты
-  
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  deletedAt     DateTime? // Soft delete для карт
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  transactions  Transaction[]
+  last4Digits String // Последние 4 цифры (например, "1234")
+  cardType    String // "visa", "mastercard", "mir"
+  expiryMonth Int // Месяц истечения (1-12)
+  expiryYear  Int // Год истечения
+
+  providerToken String? // Токен для повторных платежей (симуляция Stripe токена)
+
+  isDefault  Boolean @default(false)
+  isActive   Boolean @default(true)
+  holderName String? // Имя держателя карты
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // Soft delete для карт
+
+  transactions Transaction[]
 
   @@index([userId, deletedAt])
   @@map("payment_cards")
 }
 
 model Transaction {
-  id                    String            @id @default(uuid())
-  userId                String
-  user                  User              @relation(fields: [userId], references: [id])
-  
-  type                  TransactionType
-  status                TransactionStatus @default(PENDING)
-  
-  amount                Decimal           @db.Decimal(10, 2)
-  currency              String            @default("RUB")
-  
-  orderId               String?           // Если транзакция связана с заказом
-  order                 Order?            @relation(fields: [orderId], references: [id])
-  cardId                String?           // Если использовалась карта
-  card                  PaymentCard?      @relation(fields: [cardId], references: [id])
-  
-  provider              String?           // "stripe" (симуляция)
-  providerTransactionId String?           // ID транзакции в системе провайдера (симуляция)
-  
-  description           String?           // Описание транзакции
-  metadata              Json?             // Дополнительные данные (JSON)
-  
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  type   TransactionType
+  status TransactionStatus @default(PENDING)
+
+  amount   Decimal @db.Decimal(10, 2)
+  currency String  @default("RUB")
+
+  orderId String? // Если транзакция связана с заказом
+  order   Order?       @relation(fields: [orderId], references: [id])
+  cardId  String? // Если использовалась карта
+  card    PaymentCard? @relation(fields: [cardId], references: [id])
+
+  provider              String? // "stripe" (симуляция)
+  providerTransactionId String? // ID транзакции в системе провайдера (симуляция)
+
+  description String? // Описание транзакции
+  metadata    Json? // Дополнительные данные (JSON)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId, createdAt])
   @@index([status])
@@ -282,48 +282,58 @@ model Transaction {
 }
 
 model BrandDocument {
-  id              String        @id @default(uuid())
-  brandId         String
-  brand           Brand         @relation(fields: [brandId], references: [id], onDelete: Cascade)
-  
-  type            DocumentType
-  name            String
-  fileUrl         String
-  fileType        String?
-  fileSize        Int?
-  
-  uploadedAt      DateTime      @default(now())
-  verifiedAt      DateTime?
-  verifiedBy      String?
-  isVerified      Boolean       @default(false)
+  id      String @id @default(uuid())
+  brandId String
+  brand   Brand  @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  type     DocumentType
+  name     String
+  fileUrl  String
+  fileType String?
+  fileSize Int?
+
+  uploadedAt       DateTime  @default(now())
+  verifiedAt       DateTime?
+  verifiedBy       String?
+  isVerified       Boolean   @default(false)
   verificationNote String?
-  
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([brandId])
   @@map("brand_documents")
 }
 
 model BrandApiKey {
-  id              String    @id @default(uuid())
-  brandId         String
-  brand           Brand     @relation(fields: [brandId], references: [id], onDelete: Cascade)
-  
-  name            String
-  keyHash         String    @unique
-  prefix          String
-  
-  permissions     String[]
-  isActive        Boolean   @default(true)
-  lastUsedAt      DateTime?
-  expiresAt      DateTime?
-  
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  deletedAt       DateTime?
-  
+  id      String @id @default(uuid())
+  brandId String
+  brand   Brand  @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  name    String
+  keyHash String @unique
+  prefix  String
+
+  permissions String[]
+  isActive    Boolean   @default(true)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
   @@index([brandId, isActive])
   @@index([keyHash])
   @@map("brand_api_keys")
+}
+
+model SystemSettings {
+  id        String   @id @default("system")
+  settings  Json // JSON объект с настройками
+  updatedBy String? // ID SYSTEM_ADMIN, который обновил настройки
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@map("system_settings")
 }

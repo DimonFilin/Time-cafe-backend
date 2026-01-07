@@ -3,14 +3,19 @@ import {
   NotFoundException,
   ConflictException,
   Logger,
+  ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { WorkerAccount, WorkerRole } from '@prisma/client';
+import { WorkerAccount, WorkerRole, Prisma } from '@prisma/client';
 import { KeycloakService } from '../auth/services/keycloak.service';
 import { UsersService } from '../users/users.service';
 import { RegisterWorkerDto } from './dto/register-worker.dto';
+import { UpdateWorkerDto } from './dto/update-worker.dto';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto';
 import { UserProfileDto } from '../auth/dto/user-profile.dto';
+import { WorkerListResponseDto } from './dto/worker-list-response.dto';
+import { WorkerListQueryDto } from './dto/worker-list-query.dto';
 
 interface TokenResponse {
   access_token: string;
@@ -126,7 +131,126 @@ export class WorkersService {
     });
   }
 
-  async register(dto: RegisterWorkerDto): Promise<AuthResponseDto> {
+  async register(
+    requesterKeycloakId: string,
+    dto: RegisterWorkerDto,
+  ): Promise<AuthResponseDto> {
+    // Check requester permissions
+    const requester = await this.findByKeycloakId(requesterKeycloakId);
+    if (!requester) {
+      throw new ForbiddenException('Requester worker account not found');
+    }
+
+    if (
+      requester.role !== WorkerRole.SYSTEM_ADMIN &&
+      requester.role !== WorkerRole.BRAND_ADMIN
+    ) {
+      throw new ForbiddenException(
+        'Only SYSTEM_ADMIN or BRAND_ADMIN can create workers',
+      );
+    }
+
+    // Validate CAFE_ADMIN requirements
+    if (dto.role === WorkerRole.CAFE_ADMIN) {
+      if (!dto.cafeId) {
+        throw new BadRequestException('cafeId is required for CAFE_ADMIN role');
+      }
+
+      // Check cafe exists and is not deleted
+      const cafe = await this.prisma.cafe.findFirst({
+        where: {
+          id: dto.cafeId,
+          deletedAt: null,
+        },
+        include: {
+          brand: true,
+        },
+      });
+
+      if (!cafe) {
+        throw new NotFoundException(`Cafe with ID ${dto.cafeId} not found`);
+      }
+
+      // Validate brand relationship
+      if (dto.brandId) {
+        if (cafe.brandId !== dto.brandId) {
+          throw new BadRequestException(
+            `Cafe ${dto.cafeId} does not belong to brand ${dto.brandId}`,
+          );
+        }
+      }
+
+      // Check access rights
+      if (requester.role === WorkerRole.BRAND_ADMIN) {
+        if (!requester.brandId || requester.brandId !== cafe.brandId) {
+          throw new ForbiddenException(
+            'BRAND_ADMIN can only create CAFE_ADMIN for cafes of their brand',
+          );
+        }
+      }
+      // SYSTEM_ADMIN can create for any cafe
+    }
+
+    // Validate BRAND_ADMIN requirements
+    if (dto.role === WorkerRole.BRAND_ADMIN) {
+      if (!dto.brandId) {
+        throw new BadRequestException(
+          'brandId is required for BRAND_ADMIN role',
+        );
+      }
+
+      // Check brand exists
+      const brand = await this.prisma.brand.findFirst({
+        where: {
+          id: dto.brandId,
+          deletedAt: null,
+        },
+      });
+
+      if (!brand) {
+        throw new NotFoundException(`Brand with ID ${dto.brandId} not found`);
+      }
+
+      // Check access rights
+      if (requester.role === WorkerRole.BRAND_ADMIN) {
+        if (requester.brandId !== dto.brandId) {
+          throw new ForbiddenException(
+            'BRAND_ADMIN can only create BRAND_ADMIN for their own brand',
+          );
+        }
+      }
+      // SYSTEM_ADMIN can create for any brand
+    }
+
+    // Validate WORKER requirements
+    if (dto.role === WorkerRole.WORKER) {
+      if (!dto.cafeId) {
+        throw new BadRequestException('cafeId is required for WORKER role');
+      }
+
+      // Check cafe exists
+      const cafe = await this.prisma.cafe.findFirst({
+        where: {
+          id: dto.cafeId,
+          deletedAt: null,
+        },
+      });
+
+      if (!cafe) {
+        throw new NotFoundException(`Cafe with ID ${dto.cafeId} not found`);
+      }
+
+      // Check access rights
+      if (requester.role === WorkerRole.BRAND_ADMIN) {
+        if (!requester.brandId || requester.brandId !== cafe.brandId) {
+          throw new ForbiddenException(
+            'BRAND_ADMIN can only create WORKER for cafes of their brand',
+          );
+        }
+      }
+      // SYSTEM_ADMIN can create for any cafe
+    }
+
     const keycloakUser = await this.keycloakService.getUserByEmail(dto.email);
     if (keycloakUser) {
       throw new ConflictException(
@@ -229,5 +353,145 @@ export class WorkersService {
       balance: '0',
       createdAt: worker.createdAt,
     };
+  }
+
+  /**
+   * Get all workers (SYSTEM_ADMIN only)
+   */
+  async findAll(
+    keycloakId: string,
+    query: WorkerListQueryDto,
+  ): Promise<WorkerListResponseDto> {
+    // Check if user is SYSTEM_ADMIN
+    const worker = await this.findByKeycloakId(keycloakId);
+    if (!worker || worker.role !== WorkerRole.SYSTEM_ADMIN) {
+      throw new ForbiddenException('Only SYSTEM_ADMIN can view all workers');
+    }
+
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.WorkerAccountWhereInput = {
+      deletedAt: null,
+      ...(query.role && { role: query.role }),
+      ...(query.brandId && { brandId: query.brandId }),
+      ...(query.cafeId && { cafeId: query.cafeId }),
+    };
+
+    const [items, total] = await Promise.all([
+      this.prisma.workerAccount.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.workerAccount.count({ where }),
+    ]);
+
+    return {
+      items: items.map((w) => ({
+        id: w.id,
+        email: w.email,
+        firstName: w.firstName,
+        lastName: w.lastName,
+        role: w.role,
+        brandId: w.brandId ?? undefined,
+        cafeId: w.cafeId ?? undefined,
+        createdAt: w.createdAt,
+      })),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+   * Get worker by ID (SYSTEM_ADMIN only)
+   */
+  async findOneById(
+    keycloakId: string,
+    workerId: string,
+  ): Promise<WorkerAccount | null> {
+    // Check if user is SYSTEM_ADMIN
+    const worker = await this.findByKeycloakId(keycloakId);
+    if (!worker || worker.role !== WorkerRole.SYSTEM_ADMIN) {
+      throw new ForbiddenException('Only SYSTEM_ADMIN can view worker details');
+    }
+
+    return this.findById(workerId);
+  }
+
+  /**
+   * Update worker by ID (SYSTEM_ADMIN only)
+   */
+  async updateById(
+    keycloakId: string,
+    workerId: string,
+    dto: UpdateWorkerDto,
+  ): Promise<WorkerAccount> {
+    // Check if user is SYSTEM_ADMIN
+    const requester = await this.findByKeycloakId(keycloakId);
+    if (!requester || requester.role !== WorkerRole.SYSTEM_ADMIN) {
+      throw new ForbiddenException('Only SYSTEM_ADMIN can update workers');
+    }
+
+    const worker = await this.findById(workerId);
+    if (!worker) {
+      throw new NotFoundException('Worker account not found');
+    }
+
+    // Validate cafe if cafeId is being updated
+    if (dto.cafeId !== undefined && dto.cafeId !== worker.cafeId) {
+      const cafe = await this.prisma.cafe.findFirst({
+        where: {
+          id: dto.cafeId,
+          deletedAt: null,
+        },
+      });
+
+      if (!cafe) {
+        throw new NotFoundException(`Cafe with ID ${dto.cafeId} not found`);
+      }
+    }
+
+    // Validate brand if brandId is being updated
+    if (dto.brandId !== undefined && dto.brandId !== worker.brandId) {
+      const brand = await this.prisma.brand.findFirst({
+        where: {
+          id: dto.brandId,
+          deletedAt: null,
+        },
+      });
+
+      if (!brand) {
+        throw new NotFoundException(`Brand with ID ${dto.brandId} not found`);
+      }
+    }
+
+    return this.update(workerId, dto);
+  }
+
+  /**
+   * Delete worker by ID (SYSTEM_ADMIN only)
+   */
+  async deleteById(keycloakId: string, workerId: string): Promise<void> {
+    // Check if user is SYSTEM_ADMIN
+    const requester = await this.findByKeycloakId(keycloakId);
+    if (!requester || requester.role !== WorkerRole.SYSTEM_ADMIN) {
+      throw new ForbiddenException('Only SYSTEM_ADMIN can delete workers');
+    }
+
+    const worker = await this.findById(workerId);
+    if (!worker) {
+      throw new NotFoundException('Worker account not found');
+    }
+
+    // Delete from Keycloak
+    await this.keycloakService.deleteUser(worker.keycloakId);
+
+    // Soft delete from database
+    await this.softDelete(workerId);
   }
 }

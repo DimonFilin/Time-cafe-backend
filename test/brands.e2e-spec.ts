@@ -5,10 +5,17 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { BrandStatus, WorkerRole } from '@prisma/client';
 import { BrandResponseDto } from '../src/modules/brands/dto/brand-response.dto';
+import { KeycloakService } from '../src/modules/auth/services/keycloak.service';
+import {
+  createSystemAdmin,
+  createBrandAdmin,
+  createRegularUser,
+} from './helpers/test-factories';
 
 describe('Brands Endpoints (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let keycloakService: KeycloakService;
   const brandsToCleanup: string[] = [];
 
   beforeAll(async () => {
@@ -34,6 +41,7 @@ describe('Brands Endpoints (e2e)', () => {
       }),
     );
     prisma = moduleFixture.get<PrismaService>(PrismaService);
+    keycloakService = moduleFixture.get<KeycloakService>(KeycloakService);
 
     await app.init();
   });
@@ -53,8 +61,49 @@ describe('Brands Endpoints (e2e)', () => {
     await app.close();
   });
 
+  // Helper to get test factories dependencies
+  const getTestFactoriesDeps = () => ({
+    app,
+    prisma,
+    keycloakService,
+  });
+
   describe('POST /brands', () => {
-    it('should create a brand with valid data', async () => {
+    let systemAdminToken: string;
+
+    beforeAll(async () => {
+      const adminEmail = `systemadmin-create-${Date.now()}@test.com`;
+      const password = 'Admin123!@#';
+
+      // Create user in Keycloak
+      const keycloakId = await keycloakService.createUser(adminEmail, password);
+
+      // Create worker account in database
+      await prisma.workerAccount.create({
+        data: {
+          keycloakId,
+          email: adminEmail,
+          firstName: 'System',
+          lastName: 'Admin',
+          role: WorkerRole.SYSTEM_ADMIN,
+        },
+      });
+
+      // Login to get token
+      const loginResponse = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/auth/login')
+        .send({
+          email: adminEmail,
+          password,
+        });
+
+      systemAdminToken = (loginResponse.body as { accessToken: string })
+        .accessToken;
+    });
+
+    it('should create a brand with valid data as SYSTEM_ADMIN', async () => {
       const createBrandDto = {
         name: 'Test Coffee Brand',
         email: 'test@brand.com',
@@ -68,6 +117,7 @@ describe('Brands Endpoints (e2e)', () => {
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
         .post('/brands')
+        .set('Authorization', `Bearer ${systemAdminToken}`)
         .send(createBrandDto)
         .expect(201);
 
@@ -89,7 +139,7 @@ describe('Brands Endpoints (e2e)', () => {
       brandsToCleanup.push(body.id);
     });
 
-    it('should create a brand with minimal required data', async () => {
+    it('should create a brand with minimal required data as SYSTEM_ADMIN', async () => {
       const createBrandDto = {
         name: 'Minimal Brand',
         email: 'minimal@brand.com',
@@ -101,6 +151,7 @@ describe('Brands Endpoints (e2e)', () => {
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
         .post('/brands')
+        .set('Authorization', `Bearer ${systemAdminToken}`)
         .send(createBrandDto)
         .expect(201);
 
@@ -114,6 +165,61 @@ describe('Brands Endpoints (e2e)', () => {
       brandsToCleanup.push(body.id);
     });
 
+    it('should return 401 for unauthenticated request', async () => {
+      const createBrandDto = {
+        name: 'Test Brand',
+        email: 'test@brand.com',
+        phone: '+7 (999) 123-45-67',
+        address: '123 Main St',
+      };
+
+      await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/brands')
+        .send(createBrandDto)
+        .expect(401);
+    });
+
+    it('should return 403 for non-SYSTEM_ADMIN user', async () => {
+      const brand = await prisma.brand.create({
+        data: {
+          name: 'Test Brand for Admin',
+          email: 'admin@brand.com',
+          phone: '+7 (999) 123-45-67',
+          address: '123 Main St',
+          status: BrandStatus.ACTIVE,
+          isVerified: true,
+          verifiedAt: new Date(),
+        },
+      });
+      brandsToCleanup.push(brand.id);
+
+      const tempSystemAdminToken = await createSystemAdmin(
+        getTestFactoriesDeps(),
+      );
+      const brandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        tempSystemAdminToken,
+        brand.id,
+      );
+
+      const createBrandDto = {
+        name: 'Test Brand',
+        email: 'test@brand.com',
+        phone: '+7 (999) 123-45-67',
+        address: '123 Main St',
+      };
+
+      await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .post('/brands')
+        .set('Authorization', `Bearer ${brandAdminToken}`)
+        .send(createBrandDto)
+        .expect(403);
+    });
+
     it('should return 400 for missing required fields', async () => {
       const invalidDto = {
         name: 'Test Brand',
@@ -124,6 +230,7 @@ describe('Brands Endpoints (e2e)', () => {
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
         .post('/brands')
+        .set('Authorization', `Bearer ${systemAdminToken}`)
         .send(invalidDto)
         .expect(400);
     });
@@ -140,6 +247,7 @@ describe('Brands Endpoints (e2e)', () => {
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
         .post('/brands')
+        .set('Authorization', `Bearer ${systemAdminToken}`)
         .send(invalidDto)
         .expect(400);
     });
@@ -157,6 +265,7 @@ describe('Brands Endpoints (e2e)', () => {
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
         .post('/brands')
+        .set('Authorization', `Bearer ${systemAdminToken}`)
         .send(invalidDto)
         .expect(400);
     });
@@ -173,6 +282,7 @@ describe('Brands Endpoints (e2e)', () => {
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
         .post('/brands')
+        .set('Authorization', `Bearer ${systemAdminToken}`)
         .send(invalidDto)
         .expect(400);
     });
@@ -189,6 +299,7 @@ describe('Brands Endpoints (e2e)', () => {
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
         .post('/brands')
+        .set('Authorization', `Bearer ${systemAdminToken}`)
         .send(invalidDto)
         .expect(400);
     });
@@ -205,6 +316,7 @@ describe('Brands Endpoints (e2e)', () => {
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
         .post('/brands')
+        .set('Authorization', `Bearer ${systemAdminToken}`)
         .send(createBrandDto)
         .expect(201);
 
@@ -235,6 +347,7 @@ describe('Brands Endpoints (e2e)', () => {
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
         .post('/brands')
+        .set('Authorization', `Bearer ${systemAdminToken}`)
         .send(createBrandDto)
         .expect(201);
 
@@ -584,51 +697,11 @@ describe('Brands Endpoints (e2e)', () => {
       });
       testDocumentId = document.id;
 
-      // Register SYSTEM_ADMIN worker
-      const adminEmail = `admin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Admin',
-          lastName: 'User',
-          role: WorkerRole.SYSTEM_ADMIN,
-        });
-
-      if (adminResponse.status === 201) {
-        systemAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        // If registration failed, try to login
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        systemAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      // Create SYSTEM_ADMIN worker
+      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
 
       // Register regular user (not SYSTEM_ADMIN)
-      const userEmail = `user-${Date.now()}@test.com`;
-      const userResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/register')
-        .send({
-          email: userEmail,
-          password: 'User123!@#',
-          firstName: 'Regular',
-          lastName: 'User',
-        });
-      regularUserToken = (userResponse.body as { accessToken: string })
-        .accessToken;
+      regularUserToken = await createRegularUser(getTestFactoriesDeps());
     });
 
     it('should verify document as SYSTEM_ADMIN', async () => {
@@ -733,50 +806,11 @@ describe('Brands Endpoints (e2e)', () => {
     let regularUserToken: string;
 
     beforeAll(async () => {
-      // Register SYSTEM_ADMIN worker
-      const adminEmail = `admin-verify-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Admin',
-          lastName: 'User',
-          role: WorkerRole.SYSTEM_ADMIN,
-        });
-
-      if (adminResponse.status === 201) {
-        systemAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        systemAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      // Create SYSTEM_ADMIN worker
+      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
 
       // Register regular user
-      const userEmail = `user-verify-${Date.now()}@test.com`;
-      const userResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/register')
-        .send({
-          email: userEmail,
-          password: 'User123!@#',
-          firstName: 'Regular',
-          lastName: 'User',
-        });
-      regularUserToken = (userResponse.body as { accessToken: string })
-        .accessToken;
+      regularUserToken = await createRegularUser(getTestFactoriesDeps());
     });
 
     it('should verify and activate brand when all required documents are verified', async () => {
@@ -1008,6 +1042,7 @@ describe('Brands Endpoints (e2e)', () => {
     let testBrandId: string;
     let brandAdminToken: string;
     let otherBrandAdminToken: string;
+    let systemAdminToken: string;
     let regularUserToken: string;
 
     beforeAll(async () => {
@@ -1040,83 +1075,25 @@ describe('Brands Endpoints (e2e)', () => {
       });
       brandsToCleanup.push(otherBrand.id);
 
-      // Register BRAND_ADMIN for test brand
-      const adminEmail = `brandadmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Brand',
-          lastName: 'Admin',
-          role: WorkerRole.BRAND_ADMIN,
-          brandId: testBrandId,
-        });
+      // Create SYSTEM_ADMIN first
+      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
 
-      if (adminResponse.status === 201) {
-        brandAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        brandAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      // Register BRAND_ADMIN for test brand using SYSTEM_ADMIN token
+      brandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        systemAdminToken,
+        testBrandId,
+      );
 
-      // Register BRAND_ADMIN for other brand
-      const otherAdminEmail = `otherbrandadmin-${Date.now()}@test.com`;
-      const otherAdminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: otherAdminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Other',
-          lastName: 'Admin',
-          role: WorkerRole.BRAND_ADMIN,
-          brandId: otherBrand.id,
-        });
-
-      if (otherAdminResponse.status === 201) {
-        otherBrandAdminToken = (
-          otherAdminResponse.body as { accessToken: string }
-        ).accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: otherAdminEmail,
-            password: 'Admin123!@#',
-          });
-        otherBrandAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      // Register BRAND_ADMIN for other brand using SYSTEM_ADMIN token
+      otherBrandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        systemAdminToken,
+        otherBrand.id,
+      );
 
       // Register regular user
-      const userEmail = `user-custom-${Date.now()}@test.com`;
-      const userResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/register')
-        .send({
-          email: userEmail,
-          password: 'User123!@#',
-          firstName: 'Regular',
-          lastName: 'User',
-        });
-      regularUserToken = (userResponse.body as { accessToken: string })
-        .accessToken;
+      regularUserToken = await createRegularUser(getTestFactoriesDeps());
     });
 
     it('should update brand customization as BRAND_ADMIN', async () => {
@@ -1169,6 +1146,32 @@ describe('Brands Endpoints (e2e)', () => {
         .expect(403);
     });
 
+    it('should update brand customization as SYSTEM_ADMIN', async () => {
+      const response = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .patch(`/brands/${testBrandId}/customization`)
+        .set('Authorization', `Bearer ${systemAdminToken}`)
+        .send({
+          primaryColor: '#AA0000',
+          secondaryColor: '#00AA00',
+          accentColor: '#0000AA',
+          backgroundColor: '#F0F0F0',
+          textColor: '#333333',
+          fontFamily: 'Roboto, sans-serif',
+        })
+        .expect(200);
+
+      const body = response.body as BrandResponseDto;
+      expect(body).toHaveProperty('id', testBrandId);
+      expect(body.primaryColor).toBe('#AA0000');
+      expect(body.secondaryColor).toBe('#00AA00');
+      expect(body.accentColor).toBe('#0000AA');
+      expect(body.backgroundColor).toBe('#F0F0F0');
+      expect(body.textColor).toBe('#333333');
+      expect(body.fontFamily).toBe('Roboto, sans-serif');
+    });
+
     it('should return 403 for regular user', async () => {
       await request(
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
@@ -1214,35 +1217,14 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const adminEmail = `logoadmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Logo',
-          lastName: 'Admin',
-          role: WorkerRole.BRAND_ADMIN,
-          brandId: testBrandId,
-        });
-
-      if (adminResponse.status === 201) {
-        brandAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        brandAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      const tempSystemAdminToken = await createSystemAdmin(
+        getTestFactoriesDeps(),
+      );
+      brandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        tempSystemAdminToken,
+        testBrandId,
+      );
     });
 
     it('should upload logo as BRAND_ADMIN', async () => {
@@ -1291,35 +1273,14 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const adminEmail = `banneradmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Banner',
-          lastName: 'Admin',
-          role: WorkerRole.BRAND_ADMIN,
-          brandId: testBrandId,
-        });
-
-      if (adminResponse.status === 201) {
-        brandAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        brandAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      const tempSystemAdminToken = await createSystemAdmin(
+        getTestFactoriesDeps(),
+      );
+      brandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        tempSystemAdminToken,
+        testBrandId,
+      );
     });
 
     it('should upload banner as BRAND_ADMIN', async () => {
@@ -1368,35 +1329,14 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const adminEmail = `apikeyadmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'API',
-          lastName: 'Admin',
-          role: WorkerRole.BRAND_ADMIN,
-          brandId: testBrandId,
-        });
-
-      if (adminResponse.status === 201) {
-        brandAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        brandAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      const tempSystemAdminToken = await createSystemAdmin(
+        getTestFactoriesDeps(),
+      );
+      brandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        tempSystemAdminToken,
+        testBrandId,
+      );
     });
 
     it('should create API key as BRAND_ADMIN', async () => {
@@ -1460,35 +1400,14 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const adminEmail = `apikeylistadmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'API',
-          lastName: 'Admin',
-          role: WorkerRole.BRAND_ADMIN,
-          brandId: testBrandId,
-        });
-
-      if (adminResponse.status === 201) {
-        brandAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        brandAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      const tempSystemAdminToken = await createSystemAdmin(
+        getTestFactoriesDeps(),
+      );
+      brandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        tempSystemAdminToken,
+        testBrandId,
+      );
 
       // Create test API key
       await prisma.brandApiKey.create({
@@ -1541,35 +1460,14 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const adminEmail = `apikeyupdateadmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'API',
-          lastName: 'Admin',
-          role: WorkerRole.BRAND_ADMIN,
-          brandId: testBrandId,
-        });
-
-      if (adminResponse.status === 201) {
-        brandAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        brandAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      const tempSystemAdminToken = await createSystemAdmin(
+        getTestFactoriesDeps(),
+      );
+      brandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        tempSystemAdminToken,
+        testBrandId,
+      );
 
       const apiKey = await prisma.brandApiKey.create({
         data: {
@@ -1631,35 +1529,14 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const adminEmail = `apikeydeleteadmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'API',
-          lastName: 'Admin',
-          role: WorkerRole.BRAND_ADMIN,
-          brandId: testBrandId,
-        });
-
-      if (adminResponse.status === 201) {
-        brandAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        brandAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      const tempSystemAdminToken = await createSystemAdmin(
+        getTestFactoriesDeps(),
+      );
+      brandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        tempSystemAdminToken,
+        testBrandId,
+      );
 
       const apiKey = await prisma.brandApiKey.create({
         data: {
@@ -1694,6 +1571,8 @@ describe('Brands Endpoints (e2e)', () => {
   describe('PATCH /brands/:id', () => {
     let testBrandId: string;
     let brandAdminToken: string;
+    let systemAdminToken: string;
+    let otherBrandAdminToken: string;
 
     beforeAll(async () => {
       const brand = await prisma.brand.create({
@@ -1710,35 +1589,30 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const adminEmail = `updateadmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Update',
-          lastName: 'Admin',
-          role: WorkerRole.BRAND_ADMIN,
-          brandId: testBrandId,
-        });
+      const otherBrand = await prisma.brand.create({
+        data: {
+          name: 'Other Brand for Update',
+          email: 'otherupdate@brand.com',
+          phone: '+7 (999) 123-45-68',
+          address: '456 Main St',
+          status: BrandStatus.ACTIVE,
+          isVerified: true,
+          verifiedAt: new Date(),
+        },
+      });
+      brandsToCleanup.push(otherBrand.id);
 
-      if (adminResponse.status === 201) {
-        brandAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        brandAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
+      brandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        systemAdminToken,
+        testBrandId,
+      );
+      otherBrandAdminToken = await createBrandAdmin(
+        getTestFactoriesDeps(),
+        systemAdminToken,
+        otherBrand.id,
+      );
     });
 
     it('should update brand as BRAND_ADMIN', async () => {
@@ -1760,6 +1634,47 @@ describe('Brands Endpoints (e2e)', () => {
       expect(body.description).toBe('Updated description');
       expect(body.website).toBe('https://updated.com');
     });
+
+    it('should update brand as SYSTEM_ADMIN', async () => {
+      const response = await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .patch(`/brands/${testBrandId}`)
+        .set('Authorization', `Bearer ${systemAdminToken}`)
+        .send({
+          name: 'Updated by System Admin',
+          description: 'Updated by system admin',
+        })
+        .expect(200);
+
+      const body = response.body as BrandResponseDto;
+      expect(body).toHaveProperty('id', testBrandId);
+      expect(body.name).toBe('Updated by System Admin');
+      expect(body.description).toBe('Updated by system admin');
+    });
+
+    it('should return 401 for unauthenticated request', async () => {
+      await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .patch(`/brands/${testBrandId}`)
+        .send({
+          name: 'Updated Brand Name',
+        })
+        .expect(401);
+    });
+
+    it('should return 403 for BRAND_ADMIN of different brand', async () => {
+      await request(
+        app.getHttpServer() as unknown as Parameters<typeof request>[0],
+      )
+        .patch(`/brands/${testBrandId}`)
+        .set('Authorization', `Bearer ${otherBrandAdminToken}`)
+        .send({
+          name: 'Updated Brand Name',
+        })
+        .expect(403);
+    });
   });
 
   describe('DELETE /brands/:id', () => {
@@ -1780,34 +1695,7 @@ describe('Brands Endpoints (e2e)', () => {
       });
       testBrandId = brand.id;
 
-      const adminEmail = `deleteadmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Delete',
-          lastName: 'Admin',
-          role: WorkerRole.SYSTEM_ADMIN,
-        });
-
-      if (adminResponse.status === 201) {
-        systemAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        systemAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
     });
 
     it('should soft delete brand as SYSTEM_ADMIN', async () => {
@@ -1844,34 +1732,7 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const adminEmail = `rejectadmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Reject',
-          lastName: 'Admin',
-          role: WorkerRole.SYSTEM_ADMIN,
-        });
-
-      if (adminResponse.status === 201) {
-        systemAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        systemAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
     });
 
     it('should reject brand as SYSTEM_ADMIN', async () => {
@@ -1923,34 +1784,7 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const adminEmail = `suspendadmin-${Date.now()}@test.com`;
-      const adminResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/workers')
-        .send({
-          email: adminEmail,
-          password: 'Admin123!@#',
-          firstName: 'Suspend',
-          lastName: 'Admin',
-          role: WorkerRole.SYSTEM_ADMIN,
-        });
-
-      if (adminResponse.status === 201) {
-        systemAdminToken = (adminResponse.body as { accessToken: string })
-          .accessToken;
-      } else {
-        const loginResponse = await request(
-          app.getHttpServer() as unknown as Parameters<typeof request>[0],
-        )
-          .post('/auth/login')
-          .send({
-            email: adminEmail,
-            password: 'Admin123!@#',
-          });
-        systemAdminToken = (loginResponse.body as { accessToken: string })
-          .accessToken;
-      }
+      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
     });
 
     it('should suspend brand as SYSTEM_ADMIN', async () => {
