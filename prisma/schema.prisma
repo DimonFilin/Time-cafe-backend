@@ -352,6 +352,9 @@ model Transaction {
   description String? // Описание транзакции
   metadata    Json? // Дополнительные данные (JSON)
 
+  retryCount Int @default(0) // Количество попыток повторного платежа
+  maxRetries Int @default(3) // Максимальное количество попыток
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
+
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 import {
   Injectable,
@@ -169,178 +169,80 @@ export class OrdersService {
       throw new BadRequestException('Order total must be greater than 0');
     }
 
-    // Create order in transaction
-    // Prisma transaction types are complex, using 'as any' for compatibility with extended Order model
-
-    const order = await this.prisma.$transaction(async (tx) => {
-      // Generate order number
-      let orderNumber = this.generateOrderNumber();
-
-      let exists = await (tx.order as any).findFirst({
-        where: { orderNumber: orderNumber as any },
+    // Create order first (always PENDING)
+    let orderNumber = this.generateOrderNumber();
+    let exists = await this.prisma.order.findFirst({
+      where: { orderNumber },
+    });
+    while (exists) {
+      orderNumber = this.generateOrderNumber();
+      exists = await this.prisma.order.findFirst({
+        where: { orderNumber },
       });
-      while (exists) {
-        orderNumber = this.generateOrderNumber();
+    }
 
-        exists = await (tx.order as any).findFirst({
-          where: { orderNumber: orderNumber as any },
-        });
-      }
-
-      // Create order
-
-      const newOrder = await (tx.order as any).create({
-        data: {
-          orderNumber,
-          userId: user.id,
-          cafeId: createOrderDto.cafeId,
-          appointmentId: createOrderDto.appointmentId || null,
-          status: OrderStatus.PENDING,
-          totalAmount,
-
-          deliveryType: (createOrderDto.deliveryType as any) || 'IN_CAFE',
-          deliveryAddress: createOrderDto.deliveryAddress || null,
-          contactPhone: createOrderDto.contactPhone,
-          notes: createOrderDto.notes || null,
-
-          paymentMethod: paymentMethod as any,
-          items: {
-            create: createOrderDto.items.map((item) => ({
-              itemName: item.itemName,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              totalPrice: item.unitPrice * item.quantity,
-              notes: item.notes || null,
-            })),
+    const order = await this.prisma.order.create({
+      data: {
+        orderNumber,
+        userId: user.id,
+        cafeId: createOrderDto.cafeId,
+        appointmentId: createOrderDto.appointmentId || null,
+        status: OrderStatus.PENDING,
+        totalAmount,
+        deliveryType: (createOrderDto.deliveryType as any) || 'IN_CAFE',
+        deliveryAddress: createOrderDto.deliveryAddress || null,
+        contactPhone: createOrderDto.contactPhone,
+        notes: createOrderDto.notes || null,
+        paymentMethod: paymentMethod as any,
+        items: {
+          create: createOrderDto.items.map((item) => ({
+            itemName: item.itemName,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            totalPrice: item.unitPrice * item.quantity,
+            notes: item.notes || null,
+          })),
+        },
+      },
+      include: {
+        items: true,
+        cafe: {
+          select: {
+            name: true,
           },
         },
+      },
+    });
+
+    // Process payment
+    if (paymentMethod === 'CARD' && createOrderDto.cardId) {
+      // Initiate card payment asynchronously
+      void this.initiateCardPayment(
+        order.id,
+        user.id,
+        createOrderDto.cardId,
+        totalAmount,
+        orderNumber,
+      );
+    } else if (paymentMethod === 'BALANCE') {
+      // Process balance payment synchronously
+      await this.initiateBalancePayment(
+        order.id,
+        user.id,
+        totalAmount,
+        orderNumber,
+      );
+      // Refresh order data after payment processing
+      const updatedOrder = await this.prisma.order.findUnique({
+        where: { id: order.id },
         include: {
           items: true,
-          cafe: {
-            select: {
-              name: true,
-            },
-          },
+          cafe: { select: { name: true } },
         },
       });
-
-      // Process payment if needed
-      if (paymentMethod === 'CARD' && createOrderDto.cardId) {
-        try {
-          // Check card exists
-          const card = await tx.paymentCard.findFirst({
-            where: {
-              id: createOrderDto.cardId,
-              userId: user.id,
-              deletedAt: null,
-              isActive: true,
-            },
-          });
-
-          if (!card) {
-            throw new BadRequestException('Payment card not found');
-          }
-
-          // Create transaction within the same DB transaction
-          await tx.transaction.create({
-            data: {
-              userId: user.id,
-              type: 'PAYMENT',
-              status: 'COMPLETED',
-              amount: totalAmount,
-              currency: 'BYN',
-              cardId: createOrderDto.cardId,
-              orderId: newOrder.id,
-              description: `Payment for order ${orderNumber}`,
-              provider: 'stripe',
-              providerTransactionId: `ch_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-            },
-          });
-
-          // Update order status and return updated order
-
-          const updatedOrder = await (tx.order as any).update({
-            where: { id: newOrder.id },
-            data: {
-              status: OrderStatus.CONFIRMED,
-              paidAt: new Date(),
-              confirmedAt: new Date(),
-            } as any,
-            include: {
-              items: true,
-              cafe: {
-                select: {
-                  name: true,
-                },
-              },
-            },
-          });
-          return updatedOrder;
-        } catch (error) {
-          this.logger.error(
-            `Payment failed for order ${newOrder.id}: ${error}`,
-          );
-          // Order remains PENDING, payment can be retried
-        }
-      } else if (paymentMethod === 'BALANCE') {
-        // Check balance
-        const currentBalance = await tx.user.findUnique({
-          where: { id: user.id },
-          select: { balance: true },
-        });
-
-        if (!currentBalance || Number(currentBalance.balance) < totalAmount) {
-          throw new BadRequestException('Insufficient balance');
-        }
-
-        // Create transaction
-        await tx.transaction.create({
-          data: {
-            userId: user.id,
-            type: 'PAYMENT',
-            status: 'COMPLETED',
-            amount: totalAmount,
-            currency: 'BYN',
-            orderId: newOrder.id,
-            description: `Payment from balance for order ${orderNumber}`,
-            provider: 'balance',
-          },
-        });
-
-        // Update user balance
-        await tx.user.update({
-          where: { id: user.id },
-          data: {
-            balance: {
-              decrement: totalAmount,
-            },
-          },
-        });
-
-        // Update order status
-
-        const updatedOrder = await (tx.order as any).update({
-          where: { id: newOrder.id },
-          data: {
-            status: OrderStatus.CONFIRMED,
-            paidAt: new Date(),
-            confirmedAt: new Date(),
-          } as any,
-          include: {
-            items: true,
-            cafe: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        });
-
-        return updatedOrder;
-      }
-
-      return newOrder;
-    });
+      return this.mapToResponseDto(updatedOrder || order);
+    }
+    // For CASH payment, order remains PENDING until payment is made
 
     return this.mapToResponseDto(order);
   }
@@ -483,6 +385,30 @@ export class OrdersService {
       throw new BadRequestException(
         `Cannot change status from ${order.status} to ${updateDto.status}`,
       );
+    }
+
+    // Business rules validation
+    if (updateDto.status === OrderStatus.CONFIRMED) {
+      // Can only confirm orders that are paid or cash orders
+      if (order.paymentMethod !== 'CASH' && !order.paidAt) {
+        throw new BadRequestException(
+          'Cannot confirm order without successful payment. Please wait for payment to complete.',
+        );
+      }
+    }
+
+    if (updateDto.status === OrderStatus.COMPLETED) {
+      // Can only complete orders that are paid and confirmed
+      if (!order.paidAt) {
+        throw new BadRequestException(
+          'Cannot complete unpaid order. Payment must be successful before completion.',
+        );
+      }
+      if (order.status !== OrderStatus.CONFIRMED) {
+        throw new BadRequestException(
+          'Cannot complete order that is not confirmed. Order must be confirmed first.',
+        );
+      }
     }
 
     // Validate cancellation reason
@@ -808,6 +734,115 @@ export class OrdersService {
     await this.checkCafeAccess(order.cafeId, keycloakId);
 
     return this.mapToResponseDto(order);
+  }
+
+  /**
+   * Initiate card payment asynchronously
+   */
+  private async initiateCardPayment(
+    orderId: string,
+    userId: string,
+    cardId: string,
+    amount: number,
+    orderNumber: string,
+  ): Promise<void> {
+    try {
+      // Check card exists
+      const card = await this.prisma.paymentCard.findFirst({
+        where: {
+          id: cardId,
+          userId,
+          deletedAt: null,
+          isActive: true,
+        },
+      });
+
+      if (!card) {
+        this.logger.error(`Card not found for order ${orderId}`);
+        return;
+      }
+
+      // Create payment transaction (will be processed asynchronously)
+      await this.transactionsService.createPayment(
+        userId,
+        cardId,
+        amount,
+        orderId,
+        `Payment for order ${orderNumber}`,
+      );
+
+      this.logger.log(`Card payment initiated for order ${orderId}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to initiate card payment for order ${orderId}: ${error}`,
+      );
+    }
+  }
+
+  /**
+   * Initiate balance payment asynchronously
+   */
+  private async initiateBalancePayment(
+    orderId: string,
+    userId: string,
+    amount: number,
+    orderNumber: string,
+  ): Promise<void> {
+    try {
+      // Check balance
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { balance: true },
+      });
+
+      if (!user || Number(user.balance) < amount) {
+        this.logger.error(`Insufficient balance for order ${orderId}`);
+        return;
+      }
+
+      // Create balance payment (synchronous - assume success)
+      await this.prisma.$transaction(async (tx) => {
+        // Create transaction
+        await tx.transaction.create({
+          data: {
+            userId,
+            type: 'PAYMENT',
+            status: 'COMPLETED', // Balance payment is immediate
+            amount,
+            currency: 'BYN',
+            orderId,
+            description: `Payment from balance for order ${orderNumber}`,
+            provider: 'balance',
+          },
+        });
+
+        // Deduct from balance
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            balance: {
+              decrement: amount,
+            },
+          },
+        });
+
+        // Update order status to CONFIRMED
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            status: OrderStatus.CONFIRMED,
+            paidAt: new Date(),
+            confirmedAt: new Date(),
+          },
+        });
+      });
+
+      this.logger.log(`Balance payment completed for order ${orderId}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to process balance payment for order ${orderId}: ${error}`,
+      );
+    }
   }
 
   /**

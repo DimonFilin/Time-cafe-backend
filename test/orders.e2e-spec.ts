@@ -162,10 +162,20 @@ describe('Orders (e2e)', () => {
 
       expect(response.body).toHaveProperty('id');
       expect(response.body).toHaveProperty('orderNumber');
-      expect(response.body.status).toBe('CONFIRMED');
+      expect(response.body.status).toBe('PENDING'); // Order starts as PENDING
       expect(response.body.totalAmount).toBe(650);
       expect(response.body.items).toHaveLength(2);
       expect(response.body.paymentMethod).toBe('CARD');
+
+      // Wait for payment to process (since PAYMENT_MODE=good by default)
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Check if order was confirmed after payment
+      const updatedOrder = await prisma.order.findUnique({
+        where: { id: response.body.id },
+      });
+      expect(updatedOrder?.status).toBe('CONFIRMED');
+      expect(updatedOrder?.paidAt).toBeTruthy();
     });
 
     it('should create order with balance payment', async () => {
@@ -188,9 +198,10 @@ describe('Orders (e2e)', () => {
         .expect(201);
 
       expect(response.body).toHaveProperty('id');
-      expect(response.body.status).toBe('CONFIRMED');
+      expect(response.body.status).toBe('CONFIRMED'); // Balance payment is synchronous
       expect(response.body.totalAmount).toBe(200);
       expect(response.body.paymentMethod).toBe('BALANCE');
+      expect(response.body.paidAt).toBeTruthy();
 
       // Check balance was deducted
       const user = await prisma.user.findUnique({
@@ -230,7 +241,7 @@ describe('Orders (e2e)', () => {
         data: { balance: 100 },
       });
 
-      await request(app.getHttpServer())
+      const response = await request(app.getHttpServer())
         .post('/orders')
         .set('Authorization', `Bearer ${userToken}`)
         .send({
@@ -246,7 +257,9 @@ describe('Orders (e2e)', () => {
           contactPhone: '+375291234567',
           paymentMethod: 'BALANCE',
         })
-        .expect(400);
+        .expect(201); // Order is created successfully
+
+      expect(response.body.status).toBe('PENDING'); // But stays PENDING due to failed payment
 
       // Restore balance
       await prisma.user.update({
@@ -587,6 +600,7 @@ describe('Orders (e2e)', () => {
           deliveryType: 'IN_CAFE',
           contactPhone: '+375291234567',
           paymentMethod: 'CARD',
+          paidAt: new Date(), // Mark as paid for testing
           items: {
             create: [
               {
@@ -642,6 +656,72 @@ describe('Orders (e2e)', () => {
 
       expect(response.body.status).toBe('CANCELLED');
       expect(response.body.cancellationReason).toBe('Out of stock');
+    });
+
+    it('should return 400 when trying to complete unpaid order', async () => {
+      // Create unpaid order
+      const unpaidOrder = await (prisma.order as any).create({
+        data: {
+          orderNumber: 'ORD-2025-TEST-UNPAID',
+          userId: userId,
+          cafeId: cafeId,
+          status: 'CONFIRMED',
+          totalAmount: 100,
+          deliveryType: 'IN_CAFE',
+          contactPhone: '+375291234567',
+          paymentMethod: 'CARD',
+          confirmedAt: new Date(),
+          items: {
+            create: [
+              {
+                itemName: 'Test Item',
+                quantity: 1,
+                unitPrice: 100,
+                totalPrice: 100,
+              },
+            ],
+          },
+        },
+      });
+
+      await request(app.getHttpServer())
+        .patch(`/orders/${unpaidOrder.id}/status`)
+        .set('Authorization', `Bearer ${freshCafeAdminToken}`)
+        .send({ status: 'COMPLETED' })
+        .expect(400);
+    });
+
+    it('should return 400 when trying to complete unconfirmed order', async () => {
+      // Create unconfirmed paid order
+      const unconfirmedOrder = await (prisma.order as any).create({
+        data: {
+          orderNumber: 'ORD-2025-TEST-UNCONFIRMED',
+          userId: userId,
+          cafeId: cafeId,
+          status: 'PENDING',
+          totalAmount: 100,
+          deliveryType: 'IN_CAFE',
+          contactPhone: '+375291234567',
+          paymentMethod: 'CARD',
+          paidAt: new Date(),
+          items: {
+            create: [
+              {
+                itemName: 'Test Item',
+                quantity: 1,
+                unitPrice: 100,
+                totalPrice: 100,
+              },
+            ],
+          },
+        },
+      });
+
+      await request(app.getHttpServer())
+        .patch(`/orders/${unconfirmedOrder.id}/status`)
+        .set('Authorization', `Bearer ${freshCafeAdminToken}`)
+        .send({ status: 'COMPLETED' })
+        .expect(400);
     });
 
     it('should return 400 for invalid status transition', async () => {

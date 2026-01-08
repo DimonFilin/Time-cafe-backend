@@ -9,7 +9,14 @@ import {
   Transaction,
   TransactionType,
   TransactionStatus,
+  OrderStatus,
 } from '@prisma/client';
+
+enum PaymentMode {
+  GOOD = 'good', // Платеж проходит моментально
+  WAIT_5 = 'wait-5', // Платеж проходит через 5 секунд
+  STOP = 'stop', // Платеж не проходит
+}
 
 @Injectable()
 export class TransactionsService {
@@ -125,9 +132,31 @@ export class TransactionsService {
       data: { status: TransactionStatus.PROCESSING },
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Get payment mode from environment
+    const paymentMode = (process.env.PAYMENT_MODE || 'good') as PaymentMode;
 
-    const success = true;
+    let waitTime = 0;
+    let success = true;
+
+    switch (paymentMode) {
+      case PaymentMode.GOOD:
+        waitTime = 100; // Very fast
+        success = true;
+        break;
+      case PaymentMode.WAIT_5:
+        waitTime = 5000; // 5 seconds
+        success = true;
+        break;
+      case PaymentMode.STOP:
+        waitTime = 1000; // 1 second
+        success = false;
+        break;
+      default:
+        waitTime = 100;
+        success = true;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, waitTime));
 
     if (success) {
       await this.prisma.transaction.update({
@@ -137,13 +166,36 @@ export class TransactionsService {
           providerTransactionId: `ch_${Date.now()}_${Math.random().toString(36).substring(7)}`,
         },
       });
-      this.logger.log(`Payment completed: ${transactionId}`);
+      this.logger.log(
+        `Payment completed: ${transactionId} (mode: ${paymentMode})`,
+      );
+
+      // If payment was for an order, update order status
+      if (transaction.orderId) {
+        await this.updateOrderStatusOnPaymentSuccess(transaction.orderId);
+      }
     } else {
-      await this.prisma.transaction.update({
+      // Payment failed - check if we can retry
+      const currentTransaction = await this.prisma.transaction.findUnique({
         where: { id: transactionId },
-        data: { status: TransactionStatus.FAILED },
       });
-      this.logger.warn(`Payment failed: ${transactionId}`);
+
+      if (
+        currentTransaction &&
+        currentTransaction.retryCount < (currentTransaction.maxRetries || 3)
+      ) {
+        // Create retry transaction
+        await this.retryPayment(transactionId);
+      } else {
+        // Mark as failed
+        await this.prisma.transaction.update({
+          where: { id: transactionId },
+          data: { status: TransactionStatus.FAILED },
+        });
+        this.logger.warn(
+          `Payment failed permanently: ${transactionId} (mode: ${paymentMode})`,
+        );
+      }
     }
   }
 
@@ -218,7 +270,8 @@ export class TransactionsService {
       data: { status: TransactionStatus.PROCESSING },
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Refunds are always successful for simulation
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     const success = true;
 
@@ -237,6 +290,60 @@ export class TransactionsService {
         data: { status: TransactionStatus.FAILED },
       });
       this.logger.warn(`Refund failed: ${transactionId}`);
+    }
+  }
+
+  /**
+   * Retry payment with increased retry count
+   */
+  private async retryPayment(originalTransactionId: string): Promise<void> {
+    const originalTransaction = await this.prisma.transaction.findUnique({
+      where: { id: originalTransactionId },
+    });
+
+    if (!originalTransaction) {
+      return;
+    }
+
+    // Increment retry count
+    const newRetryCount = originalTransaction.retryCount + 1;
+
+    await this.prisma.transaction.update({
+      where: { id: originalTransactionId },
+      data: {
+        retryCount: newRetryCount,
+        status: TransactionStatus.PENDING,
+      },
+    });
+
+    this.logger.log(
+      `Retrying payment ${originalTransactionId}, attempt ${newRetryCount}`,
+    );
+
+    // Process payment again
+    await this.processPayment(originalTransactionId);
+  }
+
+  /**
+   * Update order status when payment succeeds
+   */
+  private async updateOrderStatusOnPaymentSuccess(
+    orderId: string,
+  ): Promise<void> {
+    try {
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: {
+          status: OrderStatus.CONFIRMED,
+          paidAt: new Date(),
+          confirmedAt: new Date(),
+        },
+      });
+      this.logger.log(`Order ${orderId} confirmed after successful payment`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to update order status for ${orderId}: ${error}`,
+      );
     }
   }
 }
