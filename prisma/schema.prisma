@@ -220,6 +220,7 @@ model Order {
 
   items        OrderItem[]
   transactions Transaction[]
+  review       Review?
 
   @@index([userId, createdAt])
   @@index([cafeId, status])
@@ -249,11 +250,34 @@ model Review {
   user      User     @relation(fields: [userId], references: [id])
   cafeId    String
   cafe      Cafe     @relation(fields: [cafeId], references: [id])
-  rating    Int // 1-5
-  comment   String?
+  orderId   String?  @unique 
+  order     Order?   @relation(fields: [orderId], references: [id])
+  
+  // Raiting
+  rating    Float    // 0.0-5.0 (float для более точного рейтинга)
+  comment   String?  // Основной текст отзыва
+  
+  // Структурированная информация
+  pros      String[] // Плюсы (массив строк)
+  cons      String[] // Минусы (массив строк)
+  
+  // Медиа
+  photos    String[] // Фото к отзыву (массив URL)
+  
+  // Модерация
+  isVerified Boolean @default(false) // Проверен ли отзыв модератором
+  verifiedAt DateTime?
+  verifiedBy String? // ID модератора (SYSTEM_ADMIN или BRAND_ADMIN)
+  
+  // Soft delete
+  deletedAt DateTime?
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([cafeId, createdAt])
+  @@index([userId, cafeId])
+  @@index([orderId])
   @@map("reviews")
 }
 
