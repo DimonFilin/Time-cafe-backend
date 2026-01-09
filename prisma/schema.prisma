@@ -295,6 +295,7 @@ model Appointment {
   totalAmount   Decimal? @db.Decimal(10, 2)
   paymentMethod String? // "CARD", "BALANCE", "CASH", "FREE"
   transactionId String?
+  notes       String? // комментарии к бронированию
 
   order Order? @relation
 

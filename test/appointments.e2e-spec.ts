@@ -1,0 +1,288 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import request from 'supertest';
+import { AppModule } from '../src/app.module';
+import { PrismaService } from '../src/prisma/prisma.service';
+import { KeycloakService } from '../src/modules/auth/services/keycloak.service';
+import {
+  createRegularUser,
+  createCafe,
+  createBrand,
+  createRegion,
+  createSystemAdmin,
+  getTestFactoriesDeps,
+} from './helpers/test-factories';
+import { BrandStatus } from '@prisma/client';
+
+describe('Appointments (e2e)', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+  let keycloakService: KeycloakService;
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  let systemAdminToken: string;
+  let userToken: string;
+  let userId: string;
+  let cafeId: string;
+  let brandId: string;
+
+  const testAppointments: string[] = [];
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
+
+    prisma = app.get<PrismaService>(PrismaService);
+    keycloakService = app.get<KeycloakService>(KeycloakService);
+
+    await app.init();
+
+    const deps = getTestFactoriesDeps(app, prisma, keycloakService);
+
+    // Create system admin
+    systemAdminToken = await createSystemAdmin(deps);
+
+    // Create test data
+    userToken = await createRegularUser(deps);
+
+    // Decode token to get keycloakId
+    const tokenParts = userToken.split('.');
+    let keycloakId: string | undefined;
+    if (tokenParts.length >= 2) {
+      const payload = JSON.parse(
+        Buffer.from(tokenParts[1], 'base64').toString('utf-8'),
+      );
+      keycloakId = payload.sub;
+    }
+    const user = await prisma.user.findFirst({
+      where: { keycloakId: keycloakId || '' },
+    });
+    if (user) {
+      userId = user.id;
+    }
+
+    // Create brand
+    const brand = await createBrand(deps, {
+      status: BrandStatus.ACTIVE,
+      isVerified: true,
+      verifiedAt: new Date(),
+    });
+    brandId = brand.id;
+
+    // Create region and cafe
+    const region = await createRegion(deps);
+    const cafe = await createCafe(deps, {
+      brandId,
+      regionId: region.id,
+    });
+    cafeId = cafe.id;
+
+    // TODO: Create cafe admin when needed for cafe-specific tests
+    // cafeAdminToken = await createCafeAdmin(
+    //   deps,
+    //   systemAdminToken,
+    //   brandId,
+    //   cafeId,
+    // );
+  });
+
+  afterAll(async () => {
+    // Cleanup test data
+    for (const appointmentId of testAppointments) {
+      try {
+        await prisma.appointment.delete({ where: { id: appointmentId } });
+      } catch {
+        // Ignore if already deleted
+      }
+    }
+
+    await app.close();
+  });
+
+  describe('POST /appointments', () => {
+    it('should create appointment', async () => {
+      const futureDate = new Date();
+      futureDate.setHours(futureDate.getHours() + 2); // 2 hours from now
+
+      const response = await request(app.getHttpServer())
+        .post('/appointments')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          cafeId,
+          dateTime: futureDate.toISOString(),
+          duration: 60,
+          notes: 'Test appointment',
+        })
+        .expect(201);
+
+      expect(response.body).toHaveProperty('id');
+      expect(response.body).toHaveProperty('userId', userId);
+      expect(response.body).toHaveProperty('cafeId', cafeId);
+      expect(response.body).toHaveProperty('status', 'pending');
+      expect(response.body).toHaveProperty('duration', 60);
+      expect(response.body).toHaveProperty('notes', 'Test appointment');
+      expect(response.body).toHaveProperty('qrCode');
+
+      testAppointments.push(response.body.id);
+    });
+
+    it('should return 400 for past date', async () => {
+      const pastDate = new Date();
+      pastDate.setHours(pastDate.getHours() - 1);
+
+      await request(app.getHttpServer())
+        .post('/appointments')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          cafeId,
+          dateTime: pastDate.toISOString(),
+          duration: 60,
+        })
+        .expect(400);
+    });
+
+    it('should return 404 for non-existent cafe', async () => {
+      const futureDate = new Date();
+      futureDate.setHours(futureDate.getHours() + 2);
+
+      await request(app.getHttpServer())
+        .post('/appointments')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          cafeId: '00000000-0000-0000-0000-000000000000',
+          dateTime: futureDate.toISOString(),
+          duration: 60,
+        })
+        .expect(404);
+    });
+  });
+
+  describe('GET /appointments', () => {
+    it('should get user appointments', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/appointments')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty('items');
+      expect(response.body).toHaveProperty('total');
+      expect(response.body).toHaveProperty('page');
+      expect(response.body).toHaveProperty('limit');
+      expect(response.body).toHaveProperty('totalPages');
+      expect(Array.isArray(response.body.items)).toBe(true);
+    });
+
+    it('should filter appointments by status', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/appointments?status=pending')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+
+      expect(
+        response.body.items.every((item) => item.status === 'pending'),
+      ).toBe(true);
+    });
+  });
+
+  describe('GET /appointments/:id', () => {
+    it('should get appointment by ID', async () => {
+      const appointmentId = testAppointments[0];
+
+      const response = await request(app.getHttpServer())
+        .get(`/appointments/${appointmentId}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveProperty('id', appointmentId);
+      expect(response.body).toHaveProperty('userId', userId);
+      expect(response.body).toHaveProperty('cafeId', cafeId);
+    });
+
+    it('should return 404 for non-existent appointment', async () => {
+      await request(app.getHttpServer())
+        .get('/appointments/non-existent-id')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(404);
+    });
+  });
+
+  describe('PATCH /appointments/:id', () => {
+    it('should update appointment', async () => {
+      const appointmentId = testAppointments[0];
+      const newFutureDate = new Date();
+      newFutureDate.setHours(newFutureDate.getHours() + 4);
+
+      const response = await request(app.getHttpServer())
+        .patch(`/appointments/${appointmentId}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          dateTime: newFutureDate.toISOString(),
+          duration: 90,
+          notes: 'Updated appointment',
+        })
+        .expect(200);
+
+      expect(response.body).toHaveProperty('id', appointmentId);
+      expect(response.body).toHaveProperty('duration', 90);
+      expect(response.body).toHaveProperty('notes', 'Updated appointment');
+    });
+
+    it('should return 400 when updating with invalid data', async () => {
+      const appointmentId = testAppointments[0];
+
+      // Try to update with past date (should fail)
+      await request(app.getHttpServer())
+        .patch(`/appointments/${appointmentId}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          dateTime: new Date().toISOString(), // Past date
+        })
+        .expect(400);
+    });
+  });
+
+  describe('POST /appointments/:id/cancel', () => {
+    it('should cancel appointment', async () => {
+      const appointmentId = testAppointments[0];
+
+      const response = await request(app.getHttpServer())
+        .post(`/appointments/${appointmentId}/cancel`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          reason: 'Test cancellation',
+        })
+        .expect(200);
+
+      expect(response.body).toHaveProperty('id', appointmentId);
+      expect(response.body).toHaveProperty('status', 'cancelled');
+      expect(response.body.notes).toContain('Test cancellation');
+    });
+  });
+
+  // TODO: Add tests for cafe admin endpoints when authentication issues are resolved
+  // describe('GET /appointments/cafe/:cafeId', () => {
+  //   it('should get cafe appointments (cafe admin)', async () => {
+  //     // Implementation needed
+  //   });
+  // });
+
+  // describe('POST /appointments/cafe/:appointmentId/confirm', () => {
+  //   it('should confirm appointment (cafe admin)', async () => {
+  //     // Implementation needed
+  //   });
+  // });
+});

@@ -22,6 +22,7 @@ import {
 } from '@nestjs/swagger';
 import { PaymentCardsService } from './services/payment-cards.service';
 import { TransactionsService } from './services/transactions.service';
+import { BalanceService } from './services/balance.service';
 import { UsersService } from '../users/users.service';
 import { AddCardDto } from './dto/add-card.dto';
 import { CreatePaymentDto } from './dto/payment.dto';
@@ -35,6 +36,7 @@ export class PaymentsController {
   constructor(
     private readonly paymentCardsService: PaymentCardsService,
     private readonly transactionsService: TransactionsService,
+    private readonly balanceService: BalanceService,
     private readonly usersService: UsersService,
   ) {}
 

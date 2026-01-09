@@ -1,4 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -53,22 +56,28 @@ export async function createSystemAdmin(
     });
 
     // Login to get token
-    const loginResponse = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({
-        email: adminEmail,
-        password,
-      });
+    const loginResponse = await (global as any).testRetry(async () => {
+      return request(app.getHttpServer())
+        .post('/auth/login')
+        .send({
+          email: adminEmail,
+          password,
+        })
+        .expect(200);
+    });
 
     return (loginResponse.body as { accessToken: string }).accessToken;
   } catch {
     // If user already exists, try to login
-    const loginResponse = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({
-        email: adminEmail,
-        password,
-      });
+    const loginResponse = await (global as any).testRetry(async () => {
+      return request(app.getHttpServer())
+        .post('/auth/login')
+        .send({
+          email: adminEmail,
+          password,
+        })
+        .expect(200);
+    });
 
     return (loginResponse.body as { accessToken: string }).accessToken;
   }
@@ -210,14 +219,17 @@ export async function createRegularUser(
     `user-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`;
   const password = options?.password || 'User123!@#';
 
-  const userResponse = await request(app.getHttpServer())
-    .post('/auth/register')
-    .send({
-      email: userEmail,
-      password,
-      firstName: options?.firstName || 'Regular',
-      lastName: options?.lastName || 'User',
-    });
+  const userResponse = await (global as any).testRetry(async () => {
+    return request(app.getHttpServer())
+      .post('/auth/register')
+      .send({
+        email: userEmail,
+        password,
+        firstName: options?.firstName || 'Regular',
+        lastName: options?.lastName || 'User',
+      })
+      .expect(201);
+  });
 
   return (userResponse.body as { accessToken: string }).accessToken;
 }

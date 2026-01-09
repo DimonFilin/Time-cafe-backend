@@ -154,6 +154,15 @@ describe('Reviews (e2e)', () => {
         return;
       }
 
+      // First, update order status to COMPLETED (required for reviews)
+      await (prisma.order as any).update({
+        where: { id: orderId },
+        data: {
+          status: 'COMPLETED',
+          completedAt: new Date(),
+        },
+      });
+
       const response = await request(app.getHttpServer())
         .post('/reviews')
         .set('Authorization', `Bearer ${userToken}`)

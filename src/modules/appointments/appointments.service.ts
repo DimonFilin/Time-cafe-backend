@@ -1,0 +1,687 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  ConflictException,
+  Logger,
+} from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { UsersService } from '../users/users.service';
+import { WorkersService } from '../workers/workers.service';
+import { BalanceService } from '../payments/services/balance.service';
+import { TransactionsService } from '../payments/services/transactions.service';
+import { CreateAppointmentDto } from './dto/create-appointment.dto';
+import { UpdateAppointmentDto } from './dto/update-appointment.dto';
+import { CancelAppointmentDto } from './dto/cancel-appointment.dto';
+import { AppointmentResponseDto } from './dto/appointment-response.dto';
+import { AppointmentListResponseDto } from './dto/appointment-list-response.dto';
+import { AppointmentListQueryDto } from './dto/appointment-list-query.dto';
+import { Prisma, WorkerRole } from '@prisma/client';
+
+@Injectable()
+export class AppointmentsService {
+  private readonly logger = new Logger(AppointmentsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly usersService: UsersService,
+    private readonly workersService: WorkersService,
+    private readonly balanceService: BalanceService,
+    private readonly transactionsService: TransactionsService,
+  ) {}
+
+  /**
+   * Generate QR code for appointment
+   */
+  private generateQrCode(): string {
+    return (
+      Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15).toUpperCase()
+    );
+  }
+
+  /**
+   * Check if time slot is available
+   */
+  private async checkTimeSlotAvailability(
+    cafeId: string,
+    dateTime: Date,
+    duration: number,
+    excludeAppointmentId?: string,
+  ): Promise<void> {
+    const endTime = new Date(dateTime.getTime() + duration * 60000);
+
+    // Check for overlapping appointments
+    const overlapping = await this.prisma.appointment.findFirst({
+      where: {
+        cafeId,
+        status: { in: ['pending', 'confirmed'] },
+        OR: [
+          {
+            AND: [
+              { dateTime: { lte: dateTime } },
+              {
+                dateTime: {
+                  gte: new Date(dateTime.getTime() - duration * 60000),
+                },
+              },
+            ],
+          },
+          {
+            AND: [
+              { dateTime: { gte: dateTime } },
+              { dateTime: { lt: endTime } },
+            ],
+          },
+        ],
+        ...(excludeAppointmentId && { id: { not: excludeAppointmentId } }),
+      },
+    });
+
+    if (overlapping) {
+      throw new ConflictException('Time slot is not available');
+    }
+  }
+
+  /**
+   * Calculate appointment cost (if applicable)
+   */
+  private calculateAppointmentCost(duration: number): number {
+    // For now, appointments are free, but this can be extended
+    if (duration < 60) {
+      return 0;
+    }
+    return 100;
+  }
+
+  /**
+   * Create appointment
+   */
+  async create(
+    keycloakId: string,
+    createDto: CreateAppointmentDto,
+  ): Promise<AppointmentResponseDto> {
+    const user = await this.usersService.findByKeycloakId(keycloakId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Validate cafe exists and is active
+    const cafe = await this.prisma.cafe.findFirst({
+      where: {
+        id: createDto.cafeId,
+        deletedAt: null,
+      },
+      include: {
+        brand: {
+          select: {
+            status: true,
+            isVerified: true,
+          },
+        },
+      },
+    });
+
+    if (!cafe) {
+      throw new NotFoundException('Cafe not found');
+    }
+
+    if (cafe.brand.status !== 'ACTIVE' || !cafe.brand.isVerified) {
+      throw new BadRequestException('Cafe is not available for appointments');
+    }
+
+    const dateTime = new Date(createDto.dateTime);
+
+    // Validate date is not in the past
+    if (dateTime <= new Date()) {
+      throw new BadRequestException('Appointment date must be in the future');
+    }
+
+    // Check time slot availability
+    await this.checkTimeSlotAvailability(
+      createDto.cafeId,
+      dateTime,
+      createDto.duration,
+    );
+
+    // Calculate cost
+    const totalAmount = this.calculateAppointmentCost(createDto.duration);
+
+    // Handle payment if required
+    let transactionId: string | undefined;
+
+    if (totalAmount > 0 && createDto.paymentMethod) {
+      if (createDto.paymentMethod === 'CARD' && !createDto.cardId) {
+        throw new BadRequestException('Card ID is required for card payment');
+      }
+
+      if (createDto.paymentMethod === 'BALANCE') {
+        await this.balanceService.deductFromBalance(user.id, totalAmount);
+      } else if (createDto.paymentMethod === 'CARD' && createDto.cardId) {
+        // Create payment transaction
+        const transaction = await this.transactionsService.createPayment(
+          user.id,
+          createDto.cardId,
+          totalAmount,
+          undefined, // no orderId
+          `Payment for appointment at ${cafe.name}`,
+        );
+        transactionId = transaction.id;
+      }
+      // For CASH, payment will be made at the cafe
+    }
+
+    // Create appointment
+    const appointment = await this.prisma.appointment.create({
+      data: {
+        userId: user.id,
+        cafeId: createDto.cafeId,
+        dateTime,
+        duration: createDto.duration,
+        totalAmount,
+        paymentMethod: createDto.paymentMethod,
+        transactionId,
+        qrCode: this.generateQrCode(),
+        notes: createDto.notes,
+      },
+      include: {
+        cafe: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    this.logger.log(
+      `Appointment created: ${appointment.id} for user ${user.id} at cafe ${cafe.name}`,
+    );
+
+    return this.mapToResponseDto(appointment);
+  }
+
+  /**
+   * Get user's appointments
+   */
+  async findUserAppointments(
+    keycloakId: string,
+    query: AppointmentListQueryDto,
+  ): Promise<AppointmentListResponseDto> {
+    const user = await this.usersService.findByKeycloakId(keycloakId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.AppointmentWhereInput = {
+      userId: user.id,
+    };
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    if (query.cafeId) {
+      where.cafeId = query.cafeId;
+    }
+
+    if (query.from || query.to) {
+      where.dateTime = {};
+      if (query.from) {
+        where.dateTime.gte = new Date(query.from);
+      }
+      if (query.to) {
+        const toDate = new Date(query.to);
+        where.dateTime.lte = toDate;
+      }
+    }
+
+    const [appointments, total] = await Promise.all([
+      (this.prisma.appointment as any).findMany({
+        where,
+        include: {
+          cafe: {
+            select: {
+              name: true,
+            },
+          },
+        },
+        orderBy: { dateTime: 'desc' },
+        take: limit,
+        skip,
+      }),
+      this.prisma.appointment.count({ where }),
+    ]);
+
+    return {
+      items: appointments.map((appointment) =>
+        this.mapToResponseDto(appointment),
+      ),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+   * Get appointment by ID
+   */
+  async findOne(
+    appointmentId: string,
+    keycloakId: string,
+  ): Promise<AppointmentResponseDto> {
+    const user = await this.usersService.findByKeycloakId(keycloakId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const appointment = await (this.prisma.appointment as any).findFirst({
+      where: {
+        id: appointmentId,
+        userId: user.id,
+      },
+      include: {
+        cafe: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    return this.mapToResponseDto(appointment);
+  }
+
+  /**
+   * Update appointment
+   */
+  async update(
+    appointmentId: string,
+    keycloakId: string,
+    updateDto: UpdateAppointmentDto,
+  ): Promise<AppointmentResponseDto> {
+    const user = await this.usersService.findByKeycloakId(keycloakId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const appointment = await this.prisma.appointment.findFirst({
+      where: {
+        id: appointmentId,
+        userId: user.id,
+      },
+      include: {
+        cafe: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    // Can only update pending appointments
+    if (appointment.status !== 'pending') {
+      throw new BadRequestException('Only pending appointments can be updated');
+    }
+
+    // Validate new time if provided
+    if (updateDto.dateTime) {
+      const newDateTime = new Date(updateDto.dateTime);
+      if (newDateTime <= new Date()) {
+        throw new BadRequestException('Appointment date must be in the future');
+      }
+
+      await this.checkTimeSlotAvailability(
+        appointment.cafeId,
+        newDateTime,
+        updateDto.duration || appointment.duration,
+        appointmentId,
+      );
+    }
+
+    const updatedAppointment = await this.prisma.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        ...(updateDto.dateTime && { dateTime: new Date(updateDto.dateTime) }),
+        ...(updateDto.duration && { duration: updateDto.duration }),
+        ...(updateDto.notes !== undefined && { notes: updateDto.notes }),
+      },
+      include: {
+        cafe: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    this.logger.log(`Appointment updated: ${appointmentId}`);
+
+    return this.mapToResponseDto(updatedAppointment);
+  }
+
+  /**
+   * Cancel appointment
+   */
+  async cancel(
+    appointmentId: string,
+    keycloakId: string,
+    cancelDto?: CancelAppointmentDto,
+  ): Promise<AppointmentResponseDto> {
+    const user = await this.usersService.findByKeycloakId(keycloakId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const appointment = await this.prisma.appointment.findFirst({
+      where: {
+        id: appointmentId,
+        userId: user.id,
+      },
+      include: {
+        cafe: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    // Can only cancel pending or confirmed appointments
+    if (!['pending', 'confirmed'].includes(appointment.status)) {
+      throw new BadRequestException(
+        'Only pending or confirmed appointments can be cancelled',
+      );
+    }
+
+    // Refund if paid
+    if (
+      appointment.totalAmount &&
+      Number(appointment.totalAmount) > 0 &&
+      appointment.transactionId &&
+      appointment.paymentMethod !== 'CASH'
+    ) {
+      try {
+        if (appointment.paymentMethod === 'BALANCE') {
+          await this.balanceService.addToBalance(
+            user.id,
+            Number(appointment.totalAmount),
+          );
+        } else {
+          // Refund to card
+          await this.transactionsService.createRefund(
+            user.id,
+            appointment.transactionId,
+            Number(appointment.totalAmount),
+            `Refund for cancelled appointment at ${appointment.cafe.name}`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to refund appointment ${appointmentId}: ${error}`,
+        );
+      }
+    }
+
+    const updatedAppointment = await this.prisma.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        status: 'cancelled',
+        notes: cancelDto?.reason
+          ? `Cancelled: ${cancelDto.reason}`
+          : 'Cancelled by user',
+      },
+      include: {
+        cafe: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    this.logger.log(`Appointment cancelled: ${appointmentId}`);
+
+    return this.mapToResponseDto(updatedAppointment);
+  }
+
+  /**
+   * Get cafe appointments (for workers)
+   */
+  async findCafeAppointments(
+    cafeId: string,
+    keycloakId: string,
+    query: AppointmentListQueryDto,
+  ): Promise<AppointmentListResponseDto> {
+    // Check access
+    await this.checkCafeAccess(cafeId, keycloakId);
+
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.AppointmentWhereInput = {
+      cafeId,
+    };
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    if (query.from || query.to) {
+      where.dateTime = {};
+      if (query.from) {
+        where.dateTime.gte = new Date(query.from);
+      }
+      if (query.to) {
+        const toDate = new Date(query.to);
+        where.dateTime.lte = toDate;
+      }
+    }
+
+    const [appointments, total] = await Promise.all([
+      (this.prisma.appointment as any).findMany({
+        where,
+        include: {
+          cafe: {
+            select: {
+              name: true,
+            },
+          },
+          user: {
+            select: {
+              firstName: true,
+              lastName: true,
+              phone: true,
+            },
+          },
+        },
+        orderBy: { dateTime: 'desc' },
+        take: limit,
+        skip,
+      }),
+      this.prisma.appointment.count({ where }),
+    ]);
+
+    return {
+      items: appointments.map((appointment) =>
+        this.mapToResponseDto(appointment),
+      ),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+   * Get cafe appointment by ID (for workers)
+   */
+  async findCafeAppointment(
+    appointmentId: string,
+    keycloakId: string,
+  ): Promise<AppointmentResponseDto> {
+    const appointment = await (this.prisma.appointment as any).findUnique({
+      where: { id: appointmentId },
+      include: {
+        cafe: {
+          select: {
+            name: true,
+          },
+        },
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            phone: true,
+          },
+        },
+      },
+    });
+
+    if (!appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    // Check access
+    await this.checkCafeAccess(appointment.cafeId as string, keycloakId);
+
+    return this.mapToResponseDto(appointment);
+  }
+
+  /**
+   * Confirm appointment (for cafe workers)
+   */
+  async confirmAppointment(
+    appointmentId: string,
+    keycloakId: string,
+  ): Promise<AppointmentResponseDto> {
+    const appointment = await this.prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: {
+        cafe: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    // Check access
+    await this.checkCafeAccess(appointment.cafeId, keycloakId);
+
+    if (appointment.status !== 'pending') {
+      throw new BadRequestException(
+        'Only pending appointments can be confirmed',
+      );
+    }
+
+    const updatedAppointment = await this.prisma.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        status: 'confirmed',
+      },
+      include: {
+        cafe: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    this.logger.log(`Appointment confirmed: ${appointmentId}`);
+
+    return this.mapToResponseDto(updatedAppointment);
+  }
+
+  /**
+   * Check if user has access to cafe appointments (for workers)
+   */
+  private async checkCafeAccess(
+    cafeId: string,
+    keycloakId: string,
+  ): Promise<void> {
+    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    if (!worker) {
+      throw new ForbiddenException('Worker account not found');
+    }
+
+    if (worker.role === WorkerRole.SYSTEM_ADMIN) {
+      return;
+    }
+
+    if (worker.role === WorkerRole.BRAND_ADMIN) {
+      // Check if cafe belongs to worker's brand
+      const cafe = await this.prisma.cafe.findUnique({
+        where: { id: cafeId },
+        select: { brandId: true },
+      });
+      if (cafe?.brandId === worker.brandId) {
+        return;
+      }
+    }
+
+    if (
+      (worker.role === WorkerRole.CAFE_ADMIN ||
+        worker.role === WorkerRole.WORKER) &&
+      worker.cafeId === cafeId
+    ) {
+      return;
+    }
+
+    throw new ForbiddenException(
+      'Only SYSTEM_ADMIN, BRAND_ADMIN, CAFE_ADMIN, or WORKER of this cafe can perform this action',
+    );
+  }
+
+  /**
+   * Map appointment to response DTO
+   */
+  private mapToResponseDto(appointment: any): AppointmentResponseDto {
+    return {
+      id: appointment.id,
+      userId: appointment.userId,
+      cafeId: appointment.cafeId as string,
+      cafeName: appointment.cafe?.name,
+      dateTime: appointment.dateTime,
+      duration: appointment.duration,
+      status: appointment.status,
+      qrCode: appointment.qrCode,
+      totalAmount: appointment.totalAmount
+        ? appointment.totalAmount.toString()
+        : undefined,
+      paymentMethod: appointment.paymentMethod,
+      transactionId: appointment.transactionId,
+      orderId: appointment.order?.id,
+      notes: appointment.notes,
+      createdAt: appointment.createdAt,
+      updatedAt: appointment.updatedAt,
+    };
+  }
+}
