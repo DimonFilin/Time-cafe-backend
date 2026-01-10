@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-
 import {
   Injectable,
   NotFoundException,
@@ -245,7 +241,7 @@ export class AppointmentsService {
     }
 
     const [appointments, total] = await Promise.all([
-      (this.prisma.appointment as any).findMany({
+      this.prisma.appointment.findMany({
         where,
         include: {
           cafe: {
@@ -257,7 +253,7 @@ export class AppointmentsService {
         orderBy: { dateTime: 'desc' },
         take: limit,
         skip,
-      }),
+      }) as Promise<any[]>,
       this.prisma.appointment.count({ where }),
     ]);
 
@@ -284,7 +280,7 @@ export class AppointmentsService {
       throw new NotFoundException('User not found');
     }
 
-    const appointment = await (this.prisma.appointment as any).findFirst({
+    const appointment = await this.prisma.appointment.findFirst({
       where: {
         id: appointmentId,
         userId: user.id,
@@ -501,7 +497,7 @@ export class AppointmentsService {
     }
 
     const [appointments, total] = await Promise.all([
-      (this.prisma.appointment as any).findMany({
+      this.prisma.appointment.findMany({
         where,
         include: {
           cafe: {
@@ -520,7 +516,7 @@ export class AppointmentsService {
         orderBy: { dateTime: 'desc' },
         take: limit,
         skip,
-      }),
+      }) as Promise<any[]>,
       this.prisma.appointment.count({ where }),
     ]);
 
@@ -542,7 +538,7 @@ export class AppointmentsService {
     appointmentId: string,
     keycloakId: string,
   ): Promise<AppointmentResponseDto> {
-    const appointment = await (this.prisma.appointment as any).findUnique({
+    const appointment = await this.prisma.appointment.findUnique({
       where: { id: appointmentId },
       include: {
         cafe: {
@@ -565,7 +561,7 @@ export class AppointmentsService {
     }
 
     // Check access
-    await this.checkCafeAccess(appointment.cafeId as string, keycloakId);
+    await this.checkCafeAccess(appointment.cafeId, keycloakId);
 
     return this.mapToResponseDto(appointment);
   }
@@ -663,25 +659,47 @@ export class AppointmentsService {
   /**
    * Map appointment to response DTO
    */
-  private mapToResponseDto(appointment: any): AppointmentResponseDto {
+
+  private mapToResponseDto(appointment: unknown): AppointmentResponseDto {
+    const app = appointment as {
+      id: string;
+      userId: string;
+      cafeId: string;
+      cafe?: { name?: string };
+      dateTime: Date;
+      duration: number;
+      status: string;
+      qrCode: string;
+      totalAmount: unknown;
+      paymentMethod: string;
+      transactionId: string;
+      order?: { id: string };
+      notes: string;
+      createdAt: Date;
+      updatedAt: Date;
+    };
+
     return {
-      id: appointment.id,
-      userId: appointment.userId,
-      cafeId: appointment.cafeId as string,
-      cafeName: appointment.cafe?.name,
-      dateTime: appointment.dateTime,
-      duration: appointment.duration,
-      status: appointment.status,
-      qrCode: appointment.qrCode,
-      totalAmount: appointment.totalAmount
-        ? appointment.totalAmount.toString()
+      id: app.id,
+      userId: app.userId,
+      cafeId: app.cafeId,
+      cafeName: app.cafe?.name,
+      dateTime: app.dateTime,
+      duration: app.duration,
+      status: app.status,
+      qrCode: app.qrCode,
+      totalAmount: app.totalAmount
+        ? typeof app.totalAmount === 'number' ||
+          typeof app.totalAmount === 'string'
+          ? String(app.totalAmount)
+          : undefined
         : undefined,
-      paymentMethod: appointment.paymentMethod,
-      transactionId: appointment.transactionId,
-      orderId: appointment.order?.id,
-      notes: appointment.notes,
-      createdAt: appointment.createdAt,
-      updatedAt: appointment.updatedAt,
+      paymentMethod: app.paymentMethod,
+      transactionId: app.transactionId,
+      orderId: app.order?.id,
+      notes: app.notes,
+      createdAt: app.createdAt,
+      updatedAt: app.updatedAt,
     };
   }
 }

@@ -1,8 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import {
   Injectable,
   NotFoundException,
@@ -11,7 +6,13 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { OrderStatus, Prisma, WorkerRole } from '@prisma/client';
+import {
+  OrderStatus,
+  Prisma,
+  WorkerRole,
+  DeliveryType,
+  PaymentMethod,
+} from '@prisma/client';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderResponseDto } from './dto/order-response.dto';
 import { OrderListQueryDto } from './dto/order-list-query.dto';
@@ -189,11 +190,11 @@ export class OrdersService {
         appointmentId: createOrderDto.appointmentId || null,
         status: OrderStatus.PENDING,
         totalAmount,
-        deliveryType: (createOrderDto.deliveryType as any) || 'IN_CAFE',
+        deliveryType: createOrderDto.deliveryType || 'IN_CAFE',
         deliveryAddress: createOrderDto.deliveryAddress || null,
         contactPhone: createOrderDto.contactPhone,
         notes: createOrderDto.notes || null,
-        paymentMethod: paymentMethod as any,
+        paymentMethod: paymentMethod,
         items: {
           create: createOrderDto.items.map((item) => ({
             itemName: item.itemName,
@@ -288,7 +289,7 @@ export class OrdersService {
     }
 
     const [orders, total] = await Promise.all([
-      (this.prisma.order as any).findMany({
+      this.prisma.order.findMany({
         where,
         include: {
           items: true,
@@ -301,7 +302,7 @@ export class OrdersService {
         orderBy: { createdAt: 'desc' },
         take: limit,
         skip,
-      }),
+      }) as Promise<any[]>,
       this.prisma.order.count({ where }),
     ]);
 
@@ -326,7 +327,7 @@ export class OrdersService {
       throw new NotFoundException('User not found');
     }
 
-    const order = await (this.prisma.order as any).findFirst({
+    const order = await this.prisma.order.findFirst({
       where: {
         id: orderId,
         userId: user.id,
@@ -356,7 +357,7 @@ export class OrdersService {
     keycloakId: string,
     updateDto: UpdateOrderStatusDto,
   ): Promise<OrderResponseDto> {
-    const order = await (this.prisma.order as any).findUnique({
+    const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
         cafe: true,
@@ -379,18 +380,28 @@ export class OrdersService {
       [OrderStatus.CANCELLED]: [],
     };
 
-    if (
-      !validTransitions[order.status as OrderStatus].includes(updateDto.status)
-    ) {
+    if (!validTransitions[order.status].includes(updateDto.status)) {
       throw new BadRequestException(
         `Cannot change status from ${order.status} to ${updateDto.status}`,
       );
     }
 
     // Business rules validation
+    const orderWithPayment = order as typeof order & {
+      paidAt?: Date;
+      paymentMethod?: string;
+      confirmedAt?: Date;
+      completedAt?: Date;
+      cancelledAt?: Date;
+      cancellationReason?: string;
+    };
+
     if (updateDto.status === OrderStatus.CONFIRMED) {
       // Can only confirm orders that are paid or cash orders
-      if (order.paymentMethod !== 'CASH' && !order.paidAt) {
+      if (
+        orderWithPayment.paymentMethod !== 'CASH' &&
+        !orderWithPayment.paidAt
+      ) {
         throw new BadRequestException(
           'Cannot confirm order without successful payment. Please wait for payment to complete.',
         );
@@ -399,7 +410,7 @@ export class OrdersService {
 
     if (updateDto.status === OrderStatus.COMPLETED) {
       // Can only complete orders that are paid and confirmed
-      if (!order.paidAt) {
+      if (!orderWithPayment.paidAt) {
         throw new BadRequestException(
           'Cannot complete unpaid order. Payment must be successful before completion.',
         );
@@ -426,21 +437,23 @@ export class OrdersService {
       status: updateDto.status,
     };
 
-    if (updateDto.status === OrderStatus.CONFIRMED && !order.confirmedAt) {
-      (updateData as any).confirmedAt = new Date();
+    if (
+      updateDto.status === OrderStatus.CONFIRMED &&
+      !orderWithPayment.confirmedAt
+    ) {
+      updateData.confirmedAt = new Date();
     }
 
     if (updateDto.status === OrderStatus.COMPLETED) {
-      (updateData as any).completedAt = new Date();
+      updateData.completedAt = new Date();
     }
 
     if (updateDto.status === OrderStatus.CANCELLED) {
-      (updateData as any).cancelledAt = new Date();
-
-      (updateData as any).cancellationReason = updateDto.cancellationReason;
+      updateData.cancelledAt = new Date();
+      updateData.cancellationReason = updateDto.cancellationReason;
     }
 
-    const updatedOrder = await (this.prisma.order as any).update({
+    const updatedOrder = await this.prisma.order.update({
       where: { id: orderId },
       data: updateData,
       include: {
@@ -534,7 +547,7 @@ export class OrdersService {
       throw new NotFoundException('User not found');
     }
 
-    const order = await (this.prisma.order as any).findFirst({
+    const order = await this.prisma.order.findFirst({
       where: {
         id: orderId,
         userId: user.id,
@@ -553,13 +566,13 @@ export class OrdersService {
     }
 
     // Update order
-    const updatedOrder = await (this.prisma.order as any).update({
+    const updatedOrder = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         status: OrderStatus.CANCELLED,
         cancelledAt: new Date(),
         cancellationReason: reason || 'Cancelled by user',
-      } as any,
+      },
       include: {
         items: true,
         cafe: {
@@ -667,7 +680,7 @@ export class OrdersService {
     }
 
     const [orders, total] = await Promise.all([
-      (this.prisma.order as any).findMany({
+      this.prisma.order.findMany({
         where,
         include: {
           items: true,
@@ -687,7 +700,7 @@ export class OrdersService {
         orderBy: { createdAt: 'desc' },
         take: limit,
         skip,
-      }),
+      }) as Promise<any[]>,
       this.prisma.order.count({ where }),
     ]);
 
@@ -707,7 +720,7 @@ export class OrdersService {
     orderId: string,
     keycloakId: string,
   ): Promise<OrderResponseDto> {
-    const order = await (this.prisma.order as any).findUnique({
+    const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
         items: true,
@@ -848,38 +861,98 @@ export class OrdersService {
   /**
    * Map order to response DTO
    */
-  private mapToResponseDto(order: any): OrderResponseDto {
+  private mapToResponseDto(order: unknown): OrderResponseDto {
+    const ord = order as {
+      id: string;
+      orderNumber: string;
+      userId: string;
+      cafeId: string;
+      cafe?: { name?: string };
+      appointmentId?: string;
+      status: OrderStatus;
+      totalAmount: unknown;
+      deliveryType?: DeliveryType;
+      deliveryAddress?: string;
+      contactPhone?: string;
+      notes?: string;
+      paymentMethod?: PaymentMethod;
+      paidAt?: Date;
+      confirmedAt?: Date;
+      completedAt?: Date;
+      cancelledAt?: Date;
+      cancellationReason?: string;
+      items?: Array<{
+        id: string;
+        itemName: string;
+        quantity: number;
+        unitPrice: unknown;
+        totalPrice: unknown;
+        notes?: string;
+        createdAt: Date;
+        updatedAt: Date;
+      }>;
+      createdAt: Date;
+      updatedAt: Date;
+    };
+
     return {
-      id: order.id,
-      orderNumber: order.orderNumber || '',
-      userId: order.userId,
-      cafeId: order.cafeId,
-      cafeName: order.cafe?.name,
-      appointmentId: order.appointmentId || undefined,
-      status: order.status,
-      totalAmount: Number(order.totalAmount),
-      deliveryType: order.deliveryType || 'IN_CAFE',
-      deliveryAddress: order.deliveryAddress || undefined,
-      contactPhone: order.contactPhone || '',
-      notes: order.notes || undefined,
-      paymentMethod: order.paymentMethod || 'CARD',
-      paidAt: order.paidAt || undefined,
-      confirmedAt: order.confirmedAt || undefined,
-      completedAt: order.completedAt || undefined,
-      cancelledAt: order.cancelledAt || undefined,
-      cancellationReason: order.cancellationReason || undefined,
-      items: (order.items || []).map((item: any) => ({
+      id: ord.id,
+      orderNumber: ord.orderNumber || '',
+      userId: ord.userId,
+      cafeId: ord.cafeId,
+      cafeName: ord.cafe?.name,
+      appointmentId: ord.appointmentId || undefined,
+      status: ord.status,
+      totalAmount:
+        typeof ord.totalAmount === 'number'
+          ? ord.totalAmount
+          : typeof ord.totalAmount === 'string'
+            ? parseFloat(ord.totalAmount)
+            : ord.totalAmount &&
+                typeof ord.totalAmount === 'object' &&
+                'toNumber' in ord.totalAmount
+              ? (ord.totalAmount as { toNumber(): number }).toNumber()
+              : 0,
+      deliveryType: ord.deliveryType || 'IN_CAFE',
+      deliveryAddress: ord.deliveryAddress || undefined,
+      contactPhone: ord.contactPhone || '',
+      notes: ord.notes || undefined,
+      paymentMethod: ord.paymentMethod || 'CARD',
+      paidAt: ord.paidAt || undefined,
+      confirmedAt: ord.confirmedAt || undefined,
+      completedAt: ord.completedAt || undefined,
+      cancelledAt: ord.cancelledAt || undefined,
+      cancellationReason: ord.cancellationReason || undefined,
+      items: (ord.items || []).map((item) => ({
         id: item.id,
         itemName: item.itemName,
         quantity: item.quantity,
-        unitPrice: Number(item.unitPrice),
-        totalPrice: Number(item.totalPrice),
+        unitPrice:
+          typeof item.unitPrice === 'number'
+            ? item.unitPrice
+            : typeof item.unitPrice === 'string'
+              ? parseFloat(item.unitPrice)
+              : item.unitPrice &&
+                  typeof item.unitPrice === 'object' &&
+                  'toNumber' in item.unitPrice
+                ? (item.unitPrice as { toNumber(): number }).toNumber()
+                : 0,
+        totalPrice:
+          typeof item.totalPrice === 'number'
+            ? item.totalPrice
+            : typeof item.totalPrice === 'string'
+              ? parseFloat(item.totalPrice)
+              : item.totalPrice &&
+                  typeof item.totalPrice === 'object' &&
+                  'toNumber' in item.totalPrice
+                ? (item.totalPrice as { toNumber(): number }).toNumber()
+                : 0,
         notes: item.notes || undefined,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
       })),
-      createdAt: order.createdAt,
-      updatedAt: order.updatedAt,
+      createdAt: ord.createdAt,
+      updatedAt: ord.updatedAt,
     };
   }
 }

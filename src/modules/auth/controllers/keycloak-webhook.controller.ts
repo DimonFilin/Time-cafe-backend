@@ -2,7 +2,6 @@ import {
   Controller,
   Post,
   Body,
-  Headers,
   HttpCode,
   HttpStatus,
   Logger,
@@ -47,14 +46,8 @@ export class KeycloakWebhookController {
     status: 200,
     description: 'Webhook processed successfully',
   })
-  @ApiResponse({
-    status: 401,
-    description: 'Invalid webhook signature',
-  })
   async handleKeycloakWebhook(
     @Body() payload: KeycloakWebhookPayload,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    @Headers('x-keycloak-signature') _signature?: string,
   ): Promise<{ status: string }> {
     // В продакшене нужно проверять подпись webhook для безопасности
     // const isValid = this.verifyWebhookSignature(payload, signature);

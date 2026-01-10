@@ -1,12 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { KeycloakService } from '../../src/modules/auth/services/keycloak.service';
 import { WorkerRole, BrandStatus } from '@prisma/client';
+import type { ApiResponse } from '../types/test-globals';
 
 /**
  * Test factories for creating test data in e2e tests
@@ -56,7 +53,8 @@ export async function createSystemAdmin(
     });
 
     // Login to get token
-    const loginResponse = await (global as any).testRetry(async () => {
+
+    const loginResponse = (await global.testRetry(async () => {
       return request(app.getHttpServer())
         .post('/auth/login')
         .send({
@@ -64,22 +62,26 @@ export async function createSystemAdmin(
           password,
         })
         .expect(200);
-    });
+    })) as ApiResponse<{ accessToken: string }>;
 
-    return (loginResponse.body as { accessToken: string }).accessToken;
-  } catch {
-    // If user already exists, try to login
-    const loginResponse = await (global as any).testRetry(async () => {
-      return request(app.getHttpServer())
-        .post('/auth/login')
-        .send({
-          email: adminEmail,
-          password,
-        })
-        .expect(200);
-    });
+    return loginResponse.body.accessToken;
+  } catch (error) {
+    // If user creation failed, try to login (user might already exist)
+    try {
+      const loginResponse = (await global.testRetry(async () => {
+        return request(app.getHttpServer())
+          .post('/auth/login')
+          .send({
+            email: adminEmail,
+            password,
+          })
+          .expect(200);
+      })) as ApiResponse<{ accessToken: string }>;
 
-    return (loginResponse.body as { accessToken: string }).accessToken;
+      return loginResponse.body.accessToken;
+    } catch {
+      throw error; // Re-throw original error
+    }
   }
 }
 
@@ -92,10 +94,11 @@ export async function createBrandAdmin(
   brandId: string,
 ): Promise<string> {
   const { app } = deps;
+
   const adminEmail = `brandadmin-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`;
   const password = 'Admin123!@#';
 
-  const adminResponse = await request(app.getHttpServer())
+  const adminResponse = (await request(app.getHttpServer())
     .post('/auth/workers')
     .set('Authorization', `Bearer ${systemAdminToken}`)
     .send({
@@ -105,19 +108,20 @@ export async function createBrandAdmin(
       lastName: 'Admin',
       role: WorkerRole.BRAND_ADMIN,
       brandId,
-    });
+    })) as ApiResponse<{ accessToken: string }>;
 
   if (adminResponse.status === 201) {
-    return (adminResponse.body as { accessToken: string }).accessToken;
+    return adminResponse.body.accessToken;
   } else {
     // If registration failed, try to login
-    const loginResponse = await request(app.getHttpServer())
+    const loginResponse = (await request(app.getHttpServer())
       .post('/auth/login')
       .send({
         email: adminEmail,
         password,
-      });
-    return (loginResponse.body as { accessToken: string }).accessToken;
+      })) as ApiResponse<{ accessToken: string }>;
+
+    return loginResponse.body.accessToken;
   }
 }
 
@@ -131,10 +135,11 @@ export async function createCafeAdmin(
   brandId?: string,
 ): Promise<string> {
   const { app } = deps;
+
   const adminEmail = `cafeadmin-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`;
   const password = 'Admin123!@#';
 
-  const adminResponse = await request(app.getHttpServer())
+  const adminResponse = (await request(app.getHttpServer())
     .post('/auth/workers')
     .set('Authorization', `Bearer ${adminToken}`)
     .send({
@@ -145,19 +150,20 @@ export async function createCafeAdmin(
       role: WorkerRole.CAFE_ADMIN,
       cafeId,
       ...(brandId && { brandId }),
-    });
+    })) as ApiResponse<{ accessToken: string }>;
 
   if (adminResponse.status === 201) {
-    return (adminResponse.body as { accessToken: string }).accessToken;
+    return adminResponse.body.accessToken;
   } else {
     // If registration failed, try to login
-    const loginResponse = await request(app.getHttpServer())
+    const loginResponse = (await request(app.getHttpServer())
       .post('/auth/login')
       .send({
         email: adminEmail,
         password,
-      });
-    return (loginResponse.body as { accessToken: string }).accessToken;
+      })) as ApiResponse<{ accessToken: string }>;
+
+    return loginResponse.body.accessToken;
   }
 }
 
@@ -171,10 +177,11 @@ export async function createWorker(
   brandId?: string,
 ): Promise<string> {
   const { app } = deps;
+
   const workerEmail = `worker-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`;
   const password = 'Worker123!@#';
 
-  const workerResponse = await request(app.getHttpServer())
+  const workerResponse = (await request(app.getHttpServer())
     .post('/auth/workers')
     .set('Authorization', `Bearer ${adminToken}`)
     .send({
@@ -185,19 +192,20 @@ export async function createWorker(
       role: WorkerRole.WORKER,
       cafeId,
       ...(brandId && { brandId }),
-    });
+    })) as ApiResponse<{ accessToken: string }>;
 
   if (workerResponse.status === 201) {
-    return (workerResponse.body as { accessToken: string }).accessToken;
+    return workerResponse.body.accessToken;
   } else {
     // If registration failed, try to login
-    const loginResponse = await request(app.getHttpServer())
+    const loginResponse = (await request(app.getHttpServer())
       .post('/auth/login')
       .send({
         email: workerEmail,
         password,
-      });
-    return (loginResponse.body as { accessToken: string }).accessToken;
+      })) as ApiResponse<{ accessToken: string }>;
+
+    return loginResponse.body.accessToken;
   }
 }
 
@@ -214,12 +222,13 @@ export async function createRegularUser(
   },
 ): Promise<string> {
   const { app } = deps;
+
   const userEmail =
     options?.email ||
     `user-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`;
   const password = options?.password || 'User123!@#';
 
-  const userResponse = await (global as any).testRetry(async () => {
+  const userResponse = (await global.testRetry(async () => {
     return request(app.getHttpServer())
       .post('/auth/register')
       .send({
@@ -229,9 +238,9 @@ export async function createRegularUser(
         lastName: options?.lastName || 'User',
       })
       .expect(201);
-  });
+  })) as ApiResponse<{ accessToken: string }>;
 
-  return (userResponse.body as { accessToken: string }).accessToken;
+  return userResponse.body.accessToken;
 }
 
 /**

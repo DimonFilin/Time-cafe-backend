@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-
 import {
   Injectable,
   NotFoundException,
@@ -337,22 +333,48 @@ export class ReviewsService {
   /**
    * Map review to response DTO
    */
-  private mapToResponseDto(review: any): ReviewResponseDto {
+  private mapToResponseDto(review: unknown): ReviewResponseDto {
+    const rev = review as {
+      id: string;
+      userId: string;
+      user: { firstName: string; lastName: string };
+      cafeId: string;
+      orderId: string | null;
+      rating: unknown;
+      comment: string | null;
+      pros: string[] | null;
+      cons: string[] | null;
+      photos: string[] | null;
+      isVerified: boolean;
+      verifiedAt: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+    };
+
     return {
-      id: review.id,
-      userId: review.userId,
-      userName: `${review.user.firstName} ${review.user.lastName}`,
-      cafeId: review.cafeId,
-      orderId: review.orderId || undefined,
-      rating: Number(review.rating),
-      comment: review.comment || undefined,
-      pros: review.pros || [],
-      cons: review.cons || [],
-      photos: review.photos || [],
-      isVerified: review.isVerified,
-      verifiedAt: review.verifiedAt || undefined,
-      createdAt: review.createdAt,
-      updatedAt: review.updatedAt,
+      id: rev.id,
+      userId: rev.userId,
+      userName: `${rev.user.firstName} ${rev.user.lastName}`,
+      cafeId: rev.cafeId,
+      orderId: rev.orderId || undefined,
+      rating:
+        typeof rev.rating === 'number'
+          ? rev.rating
+          : typeof rev.rating === 'string'
+            ? parseFloat(rev.rating)
+            : rev.rating &&
+                typeof rev.rating === 'object' &&
+                'toNumber' in rev.rating
+              ? (rev.rating as { toNumber(): number }).toNumber()
+              : 0,
+      comment: rev.comment || undefined,
+      pros: rev.pros || [],
+      cons: rev.cons || [],
+      photos: rev.photos || [],
+      isVerified: rev.isVerified,
+      verifiedAt: rev.verifiedAt || undefined,
+      createdAt: rev.createdAt,
+      updatedAt: rev.updatedAt,
     };
   }
 }

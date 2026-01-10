@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
@@ -25,15 +21,14 @@ describe('Orders (e2e)', () => {
   let prisma: PrismaService;
   let keycloakService: KeycloakService;
   let systemAdminToken: string;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   let brandAdminToken: string;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   let cafeAdminToken: string;
   let userToken: string;
   let brandId: string;
   let cafeId: string;
   let userId: string;
   let cardId: string;
+  let testRequest: any;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -52,6 +47,7 @@ describe('Orders (e2e)', () => {
 
     prisma = app.get<PrismaService>(PrismaService);
     keycloakService = app.get<KeycloakService>(KeycloakService);
+    testRequest = global.createTestRequest(app);
 
     const deps = getTestFactoriesDeps(app, prisma, keycloakService);
 
@@ -91,7 +87,7 @@ describe('Orders (e2e)', () => {
     if (tokenParts.length >= 2) {
       const payload = JSON.parse(
         Buffer.from(tokenParts[1], 'base64').toString('utf-8'),
-      );
+      ) as { sub?: string };
       keycloakId = payload.sub;
     }
     const user = await prisma.user.findFirst({
@@ -136,7 +132,7 @@ describe('Orders (e2e)', () => {
 
   describe('POST /orders', () => {
     it('should create order with card payment', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .post('/orders')
         .set('Authorization', `Bearer ${userToken}`)
         .send({
@@ -160,26 +156,34 @@ describe('Orders (e2e)', () => {
         })
         .expect(201);
 
-      expect(response.body).toHaveProperty('id');
-      expect(response.body).toHaveProperty('orderNumber');
-      expect(response.body.status).toBe('PENDING'); // Order starts as PENDING
-      expect(response.body.totalAmount).toBe(650);
-      expect(response.body.items).toHaveLength(2);
-      expect(response.body.paymentMethod).toBe('CARD');
+      const body = response.body as {
+        id: string;
+        orderNumber: string;
+        status: string;
+        totalAmount: number;
+        items: unknown[];
+        paymentMethod: string;
+      };
+      expect(body).toHaveProperty('id');
+      expect(body).toHaveProperty('orderNumber');
+      expect(body.status).toBe('PENDING'); // Order starts as PENDING
+      expect(body.totalAmount).toBe(650);
+      expect(body.items).toHaveLength(2);
+      expect(body.paymentMethod).toBe('CARD');
 
       // Wait for payment to process (since PAYMENT_MODE=good by default)
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       // Check if order was confirmed after payment
       const updatedOrder = await prisma.order.findUnique({
-        where: { id: response.body.id },
+        where: { id: body.id },
       });
       expect(updatedOrder?.status).toBe('CONFIRMED');
       expect(updatedOrder?.paidAt).toBeTruthy();
     });
 
     it('should create order with balance payment', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .post('/orders')
         .set('Authorization', `Bearer ${userToken}`)
         .send({
@@ -197,11 +201,18 @@ describe('Orders (e2e)', () => {
         })
         .expect(201);
 
-      expect(response.body).toHaveProperty('id');
-      expect(response.body.status).toBe('CONFIRMED'); // Balance payment is synchronous
-      expect(response.body.totalAmount).toBe(200);
-      expect(response.body.paymentMethod).toBe('BALANCE');
-      expect(response.body.paidAt).toBeTruthy();
+      const body = response.body as {
+        id: string;
+        status: string;
+        totalAmount: number;
+        paymentMethod: string;
+        paidAt: unknown;
+      };
+      expect(body).toHaveProperty('id');
+      expect(body.status).toBe('CONFIRMED'); // Balance payment is synchronous
+      expect(body.totalAmount).toBe(200);
+      expect(body.paymentMethod).toBe('BALANCE');
+      expect(body.paidAt).toBeTruthy();
 
       // Check balance was deducted
       const user = await prisma.user.findUnique({
@@ -211,7 +222,7 @@ describe('Orders (e2e)', () => {
     });
 
     it('should create order with cash payment', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .post('/orders')
         .set('Authorization', `Bearer ${userToken}`)
         .send({
@@ -229,9 +240,14 @@ describe('Orders (e2e)', () => {
         })
         .expect(201);
 
-      expect(response.body).toHaveProperty('id');
-      expect(response.body.status).toBe('PENDING');
-      expect(response.body.paymentMethod).toBe('CASH');
+      const body = response.body as {
+        id: string;
+        status: string;
+        paymentMethod: string;
+      };
+      expect(body).toHaveProperty('id');
+      expect(body.status).toBe('PENDING');
+      expect(body.paymentMethod).toBe('CASH');
     });
 
     it('should return 400 if insufficient balance', async () => {
@@ -241,7 +257,7 @@ describe('Orders (e2e)', () => {
         data: { balance: 100 },
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .post('/orders')
         .set('Authorization', `Bearer ${userToken}`)
         .send({
@@ -259,7 +275,8 @@ describe('Orders (e2e)', () => {
         })
         .expect(201); // Order is created successfully
 
-      expect(response.body.status).toBe('PENDING'); // But stays PENDING due to failed payment
+      const body = response.body as { status: string };
+      expect(body.status).toBe('PENDING'); // But stays PENDING due to failed payment
 
       // Restore balance
       await prisma.user.update({
@@ -269,7 +286,7 @@ describe('Orders (e2e)', () => {
     });
 
     it('should return 400 if card ID missing for card payment', async () => {
-      await request(app.getHttpServer())
+      testRequest
         .post('/orders')
         .set('Authorization', `Bearer ${userToken}`)
         .send({
@@ -289,7 +306,7 @@ describe('Orders (e2e)', () => {
     });
 
     it('should return 400 if delivery address missing for DELIVERY', async () => {
-      await request(app.getHttpServer())
+      testRequest
         .post('/orders')
         .set('Authorization', `Bearer ${userToken}`)
         .send({
@@ -310,7 +327,7 @@ describe('Orders (e2e)', () => {
     });
 
     it('should return 401 if not authenticated', async () => {
-      await request(app.getHttpServer())
+      testRequest
         .post('/orders')
         .send({
           cafeId: cafeId,
@@ -379,47 +396,51 @@ describe('Orders (e2e)', () => {
     });
 
     it('should get user orders', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .get('/orders')
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
 
-      expect(response.body).toHaveProperty('items');
-      expect(response.body).toHaveProperty('total');
-      expect(response.body.items.length).toBeGreaterThan(0);
+      const body = response.body as { items: unknown[]; total: number };
+      expect(body).toHaveProperty('items');
+      expect(body).toHaveProperty('total');
+      expect(body.items.length).toBeGreaterThan(0);
     });
 
     it('should filter orders by status', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .get('/orders?status=PENDING')
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
 
-      expect(
-        response.body.items.every((o: any) => o.status === 'PENDING'),
-      ).toBe(true);
+      const body = response.body as { items: { status: string }[] };
+      expect(body.items.every((o: any) => o.status === 'PENDING')).toBe(true);
     });
 
     it('should filter orders by cafe', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .get(`/orders?cafeId=${cafeId}`)
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
 
-      expect(response.body.items.every((o: any) => o.cafeId === cafeId)).toBe(
-        true,
-      );
+      const body = response.body as { items: { cafeId: string }[] };
+      expect(body.items.every((o: any) => o.cafeId === cafeId)).toBe(true);
     });
 
     it('should paginate orders', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .get('/orders?page=1&limit=1')
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
 
-      expect(response.body.items.length).toBe(1);
-      expect(response.body.page).toBe(1);
-      expect(response.body.limit).toBe(1);
+      const body = response.body as {
+        items: unknown[];
+        page: number;
+        limit: number;
+      };
+      expect(body.items.length).toBe(1);
+      expect(body.page).toBe(1);
+      expect(body.limit).toBe(1);
     });
   });
 
@@ -453,24 +474,25 @@ describe('Orders (e2e)', () => {
     });
 
     it('should get order by ID', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .get(`/orders/${orderId}`)
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
 
-      expect(response.body.id).toBe(orderId);
-      expect(response.body.items).toHaveLength(1);
+      const body = response.body as { id: string; items: unknown[] };
+      expect(body.id).toBe(orderId);
+      expect(body.items).toHaveLength(1);
     });
 
     it('should return 404 if order not found', async () => {
-      await request(app.getHttpServer())
+      testRequest
         .get('/orders/non-existent-id')
         .set('Authorization', `Bearer ${userToken}`)
         .expect(404);
     });
 
     it('should return 401 if not authenticated', async () => {
-      await request(app.getHttpServer()).get(`/orders/${orderId}`).expect(401);
+      await testRequest.get(`/orders/${orderId}`).expect(401);
     });
   });
 
@@ -504,14 +526,18 @@ describe('Orders (e2e)', () => {
     });
 
     it('should cancel pending order', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .post(`/orders/${orderId}/cancel`)
         .set('Authorization', `Bearer ${userToken}`)
         .send({ reason: 'Changed my mind' })
         .expect(200);
 
-      expect(response.body.status).toBe('CANCELLED');
-      expect(response.body.cancellationReason).toBe('Changed my mind');
+      const body = response.body as {
+        status: string;
+        cancellationReason: string;
+      };
+      expect(body.status).toBe('CANCELLED');
+      expect(body.cancellationReason).toBe('Changed my mind');
     });
 
     it('should return 400 if order cannot be cancelled', async () => {
@@ -521,7 +547,7 @@ describe('Orders (e2e)', () => {
         data: { status: 'CONFIRMED' },
       });
 
-      await request(app.getHttpServer())
+      testRequest
         .post(`/orders/${orderId}/cancel`)
         .set('Authorization', `Bearer ${userToken}`)
         .send({ reason: 'Test' })
@@ -552,7 +578,7 @@ describe('Orders (e2e)', () => {
     });
 
     it('should get cafe orders for cafe admin', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .get(`/orders/cafe/${cafeId}`)
         .set('Authorization', `Bearer ${freshCafeAdminToken}`)
         .expect(200);
@@ -562,7 +588,7 @@ describe('Orders (e2e)', () => {
     });
 
     it('should return 403 for non-cafe worker', async () => {
-      await request(app.getHttpServer())
+      testRequest
         .get(`/orders/cafe/${cafeId}`)
         .set('Authorization', `Bearer ${userToken}`)
         .expect(403);
@@ -617,14 +643,15 @@ describe('Orders (e2e)', () => {
     });
 
     it('should update order status to CONFIRMED', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .patch(`/orders/${orderId}/status`)
         .set('Authorization', `Bearer ${freshCafeAdminToken}`)
         .send({ status: 'CONFIRMED' })
         .expect(200);
 
-      expect(response.body.status).toBe('CONFIRMED');
-      expect(response.body.confirmedAt).toBeDefined();
+      const body = response.body as { status: string; confirmedAt: unknown };
+      expect(body.status).toBe('CONFIRMED');
+      expect(body.confirmedAt).toBeDefined();
     });
 
     it('should update order status to COMPLETED', async () => {
@@ -634,18 +661,19 @@ describe('Orders (e2e)', () => {
         data: { status: 'CONFIRMED' },
       });
 
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .patch(`/orders/${orderId}/status`)
         .set('Authorization', `Bearer ${freshCafeAdminToken}`)
         .send({ status: 'COMPLETED' })
         .expect(200);
 
-      expect(response.body.status).toBe('COMPLETED');
-      expect(response.body.completedAt).toBeDefined();
+      const body = response.body as { status: string; completedAt: unknown };
+      expect(body.status).toBe('COMPLETED');
+      expect(body.completedAt).toBeDefined();
     });
 
     it('should cancel order with reason', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .patch(`/orders/${orderId}/status`)
         .set('Authorization', `Bearer ${freshCafeAdminToken}`)
         .send({
@@ -654,8 +682,12 @@ describe('Orders (e2e)', () => {
         })
         .expect(200);
 
-      expect(response.body.status).toBe('CANCELLED');
-      expect(response.body.cancellationReason).toBe('Out of stock');
+      const body = response.body as {
+        status: string;
+        cancellationReason: string;
+      };
+      expect(body.status).toBe('CANCELLED');
+      expect(body.cancellationReason).toBe('Out of stock');
     });
 
     it('should return 400 when trying to complete unpaid order', async () => {
@@ -684,7 +716,7 @@ describe('Orders (e2e)', () => {
         },
       });
 
-      await request(app.getHttpServer())
+      testRequest
         .patch(`/orders/${unpaidOrder.id}/status`)
         .set('Authorization', `Bearer ${freshCafeAdminToken}`)
         .send({ status: 'COMPLETED' })
@@ -717,7 +749,7 @@ describe('Orders (e2e)', () => {
         },
       });
 
-      await request(app.getHttpServer())
+      testRequest
         .patch(`/orders/${unconfirmedOrder.id}/status`)
         .set('Authorization', `Bearer ${freshCafeAdminToken}`)
         .send({ status: 'COMPLETED' })
@@ -725,7 +757,7 @@ describe('Orders (e2e)', () => {
     });
 
     it('should return 400 for invalid status transition', async () => {
-      await request(app.getHttpServer())
+      testRequest
         .patch(`/orders/${orderId}/status`)
         .set('Authorization', `Bearer ${freshCafeAdminToken}`)
         .send({ status: 'COMPLETED' })
@@ -733,7 +765,7 @@ describe('Orders (e2e)', () => {
     });
 
     it('should return 403 for non-cafe worker', async () => {
-      await request(app.getHttpServer())
+      testRequest
         .patch(`/orders/${orderId}/status`)
         .set('Authorization', `Bearer ${userToken}`)
         .send({ status: 'CONFIRMED' })

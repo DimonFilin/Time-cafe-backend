@@ -1,10 +1,5 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { KeycloakService } from '../src/modules/auth/services/keycloak.service';
@@ -23,12 +18,12 @@ describe('Appointments (e2e)', () => {
   let prisma: PrismaService;
   let keycloakService: KeycloakService;
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  let systemAdminToken: string;
   let userToken: string;
   let userId: string;
   let cafeId: string;
   let brandId: string;
+  let testRequest: any;
+  let systemAdminToken: string;
 
   const testAppointments: string[] = [];
 
@@ -51,6 +46,7 @@ describe('Appointments (e2e)', () => {
 
     await app.init();
 
+    testRequest = global.createTestRequest(app);
     const deps = getTestFactoriesDeps(app, prisma, keycloakService);
 
     // Create system admin
@@ -65,7 +61,7 @@ describe('Appointments (e2e)', () => {
     if (tokenParts.length >= 2) {
       const payload = JSON.parse(
         Buffer.from(tokenParts[1], 'base64').toString('utf-8'),
-      );
+      ) as { sub?: string };
       keycloakId = payload.sub;
     }
     const user = await prisma.user.findFirst({
@@ -118,7 +114,7 @@ describe('Appointments (e2e)', () => {
       const futureDate = new Date();
       futureDate.setHours(futureDate.getHours() + 2); // 2 hours from now
 
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .post('/appointments')
         .set('Authorization', `Bearer ${userToken}`)
         .send({
@@ -129,22 +125,31 @@ describe('Appointments (e2e)', () => {
         })
         .expect(201);
 
-      expect(response.body).toHaveProperty('id');
-      expect(response.body).toHaveProperty('userId', userId);
-      expect(response.body).toHaveProperty('cafeId', cafeId);
-      expect(response.body).toHaveProperty('status', 'pending');
-      expect(response.body).toHaveProperty('duration', 60);
-      expect(response.body).toHaveProperty('notes', 'Test appointment');
-      expect(response.body).toHaveProperty('qrCode');
+      const body = response.body as {
+        id: string;
+        userId: string;
+        cafeId: string;
+        status: string;
+        duration: number;
+        notes: string;
+        qrCode: string;
+      };
+      expect(body).toHaveProperty('id');
+      expect(body).toHaveProperty('userId', userId);
+      expect(body).toHaveProperty('cafeId', cafeId);
+      expect(body).toHaveProperty('status', 'pending');
+      expect(body).toHaveProperty('duration', 60);
+      expect(body).toHaveProperty('notes', 'Test appointment');
+      expect(body).toHaveProperty('qrCode');
 
-      testAppointments.push(response.body.id);
+      testAppointments.push(body.id);
     });
 
     it('should return 400 for past date', async () => {
       const pastDate = new Date();
       pastDate.setHours(pastDate.getHours() - 1);
 
-      await request(app.getHttpServer())
+      await testRequest
         .post('/appointments')
         .set('Authorization', `Bearer ${userToken}`)
         .send({
@@ -159,7 +164,7 @@ describe('Appointments (e2e)', () => {
       const futureDate = new Date();
       futureDate.setHours(futureDate.getHours() + 2);
 
-      await request(app.getHttpServer())
+      await testRequest
         .post('/appointments')
         .set('Authorization', `Bearer ${userToken}`)
         .send({
@@ -173,28 +178,34 @@ describe('Appointments (e2e)', () => {
 
   describe('GET /appointments', () => {
     it('should get user appointments', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .get('/appointments')
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
 
-      expect(response.body).toHaveProperty('items');
-      expect(response.body).toHaveProperty('total');
-      expect(response.body).toHaveProperty('page');
-      expect(response.body).toHaveProperty('limit');
-      expect(response.body).toHaveProperty('totalPages');
-      expect(Array.isArray(response.body.items)).toBe(true);
+      const body = response.body as {
+        items: unknown[];
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+      };
+      expect(body).toHaveProperty('items');
+      expect(body).toHaveProperty('total');
+      expect(body).toHaveProperty('page');
+      expect(body).toHaveProperty('limit');
+      expect(body).toHaveProperty('totalPages');
+      expect(Array.isArray(body.items)).toBe(true);
     });
 
     it('should filter appointments by status', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .get('/appointments?status=pending')
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
 
-      expect(
-        response.body.items.every((item) => item.status === 'pending'),
-      ).toBe(true);
+      const body = response.body as { items: { status: string }[] };
+      expect(body.items.every((item) => item.status === 'pending')).toBe(true);
     });
   });
 
@@ -202,7 +213,7 @@ describe('Appointments (e2e)', () => {
     it('should get appointment by ID', async () => {
       const appointmentId = testAppointments[0];
 
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .get(`/appointments/${appointmentId}`)
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
@@ -213,7 +224,7 @@ describe('Appointments (e2e)', () => {
     });
 
     it('should return 404 for non-existent appointment', async () => {
-      await request(app.getHttpServer())
+      await testRequest
         .get('/appointments/non-existent-id')
         .set('Authorization', `Bearer ${userToken}`)
         .expect(404);
@@ -226,7 +237,7 @@ describe('Appointments (e2e)', () => {
       const newFutureDate = new Date();
       newFutureDate.setHours(newFutureDate.getHours() + 4);
 
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .patch(`/appointments/${appointmentId}`)
         .set('Authorization', `Bearer ${userToken}`)
         .send({
@@ -245,7 +256,7 @@ describe('Appointments (e2e)', () => {
       const appointmentId = testAppointments[0];
 
       // Try to update with past date (should fail)
-      await request(app.getHttpServer())
+      await testRequest
         .patch(`/appointments/${appointmentId}`)
         .set('Authorization', `Bearer ${userToken}`)
         .send({
@@ -259,7 +270,7 @@ describe('Appointments (e2e)', () => {
     it('should cancel appointment', async () => {
       const appointmentId = testAppointments[0];
 
-      const response = await request(app.getHttpServer())
+      const response = await testRequest
         .post(`/appointments/${appointmentId}/cancel`)
         .set('Authorization', `Bearer ${userToken}`)
         .send({
@@ -267,9 +278,14 @@ describe('Appointments (e2e)', () => {
         })
         .expect(200);
 
-      expect(response.body).toHaveProperty('id', appointmentId);
-      expect(response.body).toHaveProperty('status', 'cancelled');
-      expect(response.body.notes).toContain('Test cancellation');
+      const body = response.body as {
+        id: string;
+        status: string;
+        notes: string;
+      };
+      expect(body).toHaveProperty('id', appointmentId);
+      expect(body).toHaveProperty('status', 'cancelled');
+      expect(body.notes).toContain('Test cancellation');
     });
   });
 
