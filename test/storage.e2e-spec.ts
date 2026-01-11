@@ -77,6 +77,8 @@ describe('StorageService (e2e)', () => {
         // Ignore cleanup errors
       }
     }
+    // Clean up connections
+    await global.cleanupTestConnections();
     await app.close();
   });
 

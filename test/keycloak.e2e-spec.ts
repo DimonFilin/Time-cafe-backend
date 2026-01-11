@@ -52,6 +52,8 @@ describe('Keycloak Integration (e2e)', () => {
   });
 
   afterAll(async () => {
+    // Clean up connections
+    await global.cleanupTestConnections();
     await app.close();
   });
 

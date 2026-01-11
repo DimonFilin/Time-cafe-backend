@@ -37,22 +37,71 @@ describe('Workers Endpoints (e2e)', () => {
 
   afterAll(async () => {
     if (prisma) {
-      for (const email of testWorkers) {
-        try {
-          const worker = await prisma.workerAccount.findFirst({
-            where: { email, deletedAt: null },
-          });
-          if (worker) {
-            await prisma.workerAccount.update({
-              where: { id: worker.id },
-              data: { deletedAt: new Date() },
-            });
-          }
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
+      // Hard delete all test data in correct order (dependencies first)
+      await prisma.order.deleteMany({
+        where: {
+          OR: [
+            { user: { email: { contains: '@example.com' } } },
+            { user: { email: { contains: 'test-' } } },
+            { cafe: { name: { contains: 'Test' } } },
+          ],
+        },
+      });
+      await prisma.cafe.deleteMany({
+        where: {
+          OR: [
+            { name: { contains: 'Test' } },
+            { brand: { name: { contains: 'Test' } } },
+            { brand: { name: { contains: 'Other' } } },
+          ],
+        },
+      });
+      await prisma.brand.deleteMany({
+        where: {
+          OR: [
+            { name: { contains: 'Test' } },
+            { name: { contains: 'Other' } },
+            { email: { contains: '@test.com' } },
+            { email: { contains: 'test-' } },
+            { email: { contains: '@brand.com' } },
+          ],
+        },
+      });
+      await prisma.workerAccount.deleteMany({
+        where: {
+          OR: [
+            { email: { contains: '@example.com' } },
+            { email: { contains: 'test-' } },
+            { email: { contains: '@test.com' } },
+            { email: { contains: 'systemadmin-' } },
+            { email: { contains: 'brandadmin-' } },
+          ],
+        },
+      });
+      await prisma.transaction.deleteMany({
+        where: {
+          OR: [
+            { user: { email: { contains: '@example.com' } } },
+            { user: { email: { contains: 'test-' } } },
+            { user: { email: { contains: '@test.com' } } },
+            { user: { email: { contains: 'systemadmin-' } } },
+          ],
+        },
+      });
+      await prisma.user.deleteMany({
+        where: {
+          OR: [
+            { email: { contains: '@example.com' } },
+            { email: { contains: 'test-' } },
+            { email: { contains: '@test.com' } },
+            { email: { contains: 'systemadmin-' } },
+            { email: { contains: 'brandadmin-' } },
+          ],
+        },
+      });
     }
+    // Clean up connections
+    await global.cleanupTestConnections();
     await app.close();
   });
 

@@ -42,6 +42,9 @@ describe('Appointments (e2e)', () => {
     );
 
     prisma = app.get<PrismaService>(PrismaService);
+    // Set prisma instance for global cleanup
+    // Set prisma instance for global cleanup
+    // Set prisma instance for global cleanup
     keycloakService = app.get<KeycloakService>(KeycloakService);
 
     await app.init();
@@ -97,16 +100,35 @@ describe('Appointments (e2e)', () => {
   });
 
   afterAll(async () => {
-    // Cleanup test data
-    for (const appointmentId of testAppointments) {
-      try {
-        await prisma.appointment.delete({ where: { id: appointmentId } });
-      } catch {
-        // Ignore if already deleted
-      }
-    }
-
+    // Clean up test users created in beforeAll
+    await prisma.user.deleteMany({
+      where: {
+        OR: [
+          { email: { contains: '@test.com' } },
+          { email: { contains: 'test-' } },
+          { email: { contains: '@example.com' } },
+          { email: { contains: 'systemadmin-' } },
+          { email: { contains: 'user-' } },
+          { email: { contains: '-test-' } },
+        ],
+      },
+    });
+    await prisma.workerAccount.deleteMany({
+      where: {
+        OR: [
+          { email: { contains: '@test.com' } },
+          { email: { contains: 'test-' } },
+          { email: { contains: '@example.com' } },
+          { email: { contains: 'systemadmin-' } },
+          { email: { contains: 'user-' } },
+          { email: { contains: '-test-' } },
+        ],
+      },
+    });
+    // Clean up connections
+    await global.cleanupTestConnections();
     await app.close();
+  });
   });
 
   describe('POST /appointments', () => {
@@ -301,4 +323,64 @@ describe('Appointments (e2e)', () => {
   //     // Implementation needed
   //   });
   // });
+
+  afterAll(async () => {
+    // Clean up test data in correct order (dependencies first)
+    await prisma.appointment.deleteMany({
+      where: {
+        OR: [
+          { user: { email: { contains: '@example.com' } } },
+          { user: { email: { contains: 'test-' } } },
+          { cafe: { name: { contains: 'Test' } } },
+        ],
+      },
+    });
+    await prisma.order.deleteMany({
+      where: {
+        OR: [
+          { user: { email: { contains: '@example.com' } } },
+          { user: { email: { contains: 'test-' } } },
+          { cafe: { name: { contains: 'Test' } } },
+        ],
+      },
+    });
+    await prisma.cafe.deleteMany({
+      where: {
+        OR: [
+          { name: { contains: 'Test' } },
+          { brand: { name: { contains: 'Test' } } },
+        ],
+      },
+    });
+    await prisma.brand.deleteMany({
+      where: {
+        OR: [
+          { name: { contains: 'Test' } },
+          { email: { contains: '@test.com' } },
+          { email: { contains: 'test-' } },
+        ],
+      },
+    });
+    await prisma.user.deleteMany({
+      where: {
+        OR: [
+          { email: { contains: '@example.com' } },
+          { email: { contains: 'test-' } },
+          { email: { contains: '@test.com' } },
+        ],
+      },
+    });
+    await prisma.workerAccount.deleteMany({
+      where: {
+        OR: [
+          { email: { contains: '@example.com' } },
+          { email: { contains: 'test-' } },
+          { email: { contains: '@test.com' } },
+        ],
+      },
+    });
+    // Clean up connections
+    await global.cleanupTestConnections();
+    await app.close();
+  });
 });

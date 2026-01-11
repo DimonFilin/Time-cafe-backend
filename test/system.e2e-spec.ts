@@ -16,6 +16,8 @@ describe('System Endpoints (e2e)', () => {
   });
 
   afterAll(async () => {
+    // Clean up connections
+    await global.cleanupTestConnections();
     await app.close();
   });
 

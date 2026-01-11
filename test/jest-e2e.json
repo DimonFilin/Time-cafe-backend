@@ -4,6 +4,9 @@
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
   "testTimeout": 60000,
+  "maxWorkers": 1,
+  "forceExit": true,
+  "clearMocks": true,
   "setupFilesAfterEnv": ["<rootDir>/setup.ts"],
   "transform": {
     "^.+\\.(t|j)s$": [

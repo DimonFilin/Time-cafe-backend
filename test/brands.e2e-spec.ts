@@ -12,6 +12,7 @@ import {
   createSystemAdmin,
   createBrandAdmin,
   createRegularUser,
+  getTestFactoriesDeps,
 } from './helpers/test-factories';
 import { CafeResponseDto } from '../src/modules/cafes/dto/cafe-response.dto';
 
@@ -19,6 +20,7 @@ describe('Brands Endpoints (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let keycloakService: KeycloakService;
+  let deps: any;
   const brandsToCleanup: string[] = [];
 
   beforeAll(async () => {
@@ -46,64 +48,152 @@ describe('Brands Endpoints (e2e)', () => {
     prisma = moduleFixture.get<PrismaService>(PrismaService);
     keycloakService = moduleFixture.get<KeycloakService>(KeycloakService);
 
+    deps = { app, prisma, keycloakService };
+
     await app.init();
   });
 
   afterAll(async () => {
-    // Cleanup: soft delete all created brands
-    for (const brandId of brandsToCleanup) {
-      try {
-        await prisma.brand.update({
-          where: { id: brandId },
-          data: { deletedAt: new Date() },
-        });
-      } catch {
-        // Ignore cleanup errors
-      }
+    if (prisma) {
+      // Clean up test data in correct order (dependencies first)
+      await prisma.orderItem.deleteMany({
+        where: {
+          order: {
+            OR: [
+              { user: { email: { contains: '@test.com' } } },
+              { user: { email: { contains: 'test-' } } },
+            ],
+          },
+        },
+      });
+      await prisma.order.deleteMany({
+        where: {
+          OR: [
+            { user: { email: { contains: '@test.com' } } },
+            { user: { email: { contains: 'test-' } } },
+          ],
+        },
+      });
+      await prisma.review.deleteMany({
+        where: {
+          OR: [
+            { user: { email: { contains: '@test.com' } } },
+            { user: { email: { contains: 'test-' } } },
+            { cafe: { name: { contains: 'Test' } } },
+          ],
+        },
+      });
+      await prisma.appointment.deleteMany({
+        where: {
+          OR: [
+            { user: { email: { contains: '@test.com' } } },
+            { user: { email: { contains: 'test-' } } },
+            { cafe: { name: { contains: 'Test' } } },
+          ],
+        },
+      });
+      await prisma.brandDocument.deleteMany({
+        where: {
+          brand: {
+            OR: [
+              { name: { contains: 'Test' } },
+              { email: { contains: '@test.com' } },
+            ],
+          },
+        },
+      });
+      await prisma.brandApiKey.deleteMany({
+        where: {
+          brand: {
+            OR: [
+              { name: { contains: 'Test' } },
+              { email: { contains: '@test.com' } },
+            ],
+          },
+        },
+      });
+      await prisma.cafe.deleteMany({
+        where: {
+          OR: [
+            { name: { contains: 'Test' } },
+            { brand: { name: { contains: 'Test' } } },
+          ],
+        },
+      });
+      await prisma.brand.deleteMany({
+        where: {
+          OR: [
+            { name: { contains: 'Test' } },
+            { email: { contains: '@test.com' } },
+            { email: { contains: 'test-' } },
+          ],
+        },
+      });
+      await prisma.region.deleteMany({
+        where: {
+          OR: [{ name: { contains: 'Test' } }],
+        },
+      });
+      await prisma.transaction.deleteMany({
+        where: {
+          OR: [
+            { user: { email: { contains: '@test.com' } } },
+            { user: { email: { contains: 'test-' } } },
+            { user: { email: { contains: '@example.com' } } },
+            { user: { email: { contains: 'systemadmin-' } } },
+            { user: { email: { contains: 'user-' } } },
+            { user: { email: { contains: '-test-' } } },
+          ],
+        },
+      });
+      await prisma.paymentCard.deleteMany({
+        where: {
+          OR: [
+            { user: { email: { contains: '@test.com' } } },
+            { user: { email: { contains: 'test-' } } },
+            { user: { email: { contains: '@example.com' } } },
+            { user: { email: { contains: 'systemadmin-' } } },
+            { user: { email: { contains: 'user-' } } },
+            { user: { email: { contains: '-test-' } } },
+          ],
+        },
+      });
+      await prisma.workerAccount.deleteMany({
+        where: {
+          OR: [
+            { email: { contains: '@test.com' } },
+            { email: { contains: 'test-' } },
+            { email: { contains: '@example.com' } },
+            { email: { contains: 'systemadmin-' } },
+            { email: { contains: 'user-' } },
+            { email: { contains: '-test-' } },
+          ],
+        },
+      });
+      await prisma.user.deleteMany({
+        where: {
+          OR: [
+            { email: { contains: '@test.com' } },
+            { email: { contains: 'test-' } },
+            { email: { contains: '@example.com' } },
+            { email: { contains: 'systemadmin-' } },
+            { email: { contains: 'user-' } },
+            { email: { contains: '-test-' } },
+          ],
+        },
+      });
     }
+    // Clean up connections
+    await global.cleanupTestConnections();
     await app.close();
-  });
-
-  // Helper to get test factories dependencies
-  const getTestFactoriesDeps = () => ({
-    app,
-    prisma,
-    keycloakService,
   });
 
   describe('POST /brands', () => {
     let systemAdminToken: string;
 
-    beforeAll(async () => {
-      const adminEmail = `systemadmin-create-${Date.now()}@test.com`;
-      const password = 'Admin123!@#';
-
-      // Create user in Keycloak
-      const keycloakId = await keycloakService.createUser(adminEmail, password);
-
-      // Create worker account in database
-      await prisma.workerAccount.create({
-        data: {
-          keycloakId,
-          email: adminEmail,
-          firstName: 'System',
-          lastName: 'Admin',
-          role: WorkerRole.SYSTEM_ADMIN,
-        },
-      });
-
-      // Login to get token
-      const loginResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/login')
-        .send({
-          email: adminEmail,
-          password,
-        });
-
-      systemAdminToken = (loginResponse.body as { accessToken: string })
-        .accessToken;
+    beforeEach(async () => {
+      systemAdminToken = await createSystemAdmin(deps);
+      systemAdminToken = await createSystemAdmin(deps);
     });
 
     it('should create a brand with valid data as SYSTEM_ADMIN', async () => {
@@ -198,11 +288,9 @@ describe('Brands Endpoints (e2e)', () => {
       });
       brandsToCleanup.push(brand.id);
 
-      const tempSystemAdminToken = await createSystemAdmin(
-        getTestFactoriesDeps(),
-      );
+      const tempSystemAdminToken = await createSystemAdmin(deps);
       const brandAdminToken = await createBrandAdmin(
-        getTestFactoriesDeps(),
+        deps,
         tempSystemAdminToken,
         brand.id,
       );
@@ -701,10 +789,11 @@ describe('Brands Endpoints (e2e)', () => {
       testDocumentId = document.id;
 
       // Create SYSTEM_ADMIN worker
-      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
+      systemAdminToken = await createSystemAdmin(deps);
+      systemAdminToken = await createSystemAdmin(deps);
 
       // Register regular user (not SYSTEM_ADMIN)
-      regularUserToken = await createRegularUser(getTestFactoriesDeps());
+      regularUserToken = await createRegularUser(deps);
     });
 
     it('should verify document as SYSTEM_ADMIN', async () => {
@@ -810,10 +899,11 @@ describe('Brands Endpoints (e2e)', () => {
 
     beforeAll(async () => {
       // Create SYSTEM_ADMIN worker
-      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
+      systemAdminToken = await createSystemAdmin(deps);
+      systemAdminToken = await createSystemAdmin(deps);
 
       // Register regular user
-      regularUserToken = await createRegularUser(getTestFactoriesDeps());
+      regularUserToken = await createRegularUser(deps);
     });
 
     it('should verify and activate brand when all required documents are verified', async () => {
@@ -1079,24 +1169,25 @@ describe('Brands Endpoints (e2e)', () => {
       brandsToCleanup.push(otherBrand.id);
 
       // Create SYSTEM_ADMIN first
-      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
+      systemAdminToken = await createSystemAdmin(deps);
+      systemAdminToken = await createSystemAdmin(deps);
 
       // Register BRAND_ADMIN for test brand using SYSTEM_ADMIN token
       brandAdminToken = await createBrandAdmin(
-        getTestFactoriesDeps(),
+        deps,
         systemAdminToken,
         testBrandId,
       );
 
       // Register BRAND_ADMIN for other brand using SYSTEM_ADMIN token
       otherBrandAdminToken = await createBrandAdmin(
-        getTestFactoriesDeps(),
+        deps,
         systemAdminToken,
         otherBrand.id,
       );
 
       // Register regular user
-      regularUserToken = await createRegularUser(getTestFactoriesDeps());
+      regularUserToken = await createRegularUser(deps);
     });
 
     it('should update brand customization as BRAND_ADMIN', async () => {
@@ -1220,11 +1311,9 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const tempSystemAdminToken = await createSystemAdmin(
-        getTestFactoriesDeps(),
-      );
+      const tempSystemAdminToken = await createSystemAdmin(deps);
       brandAdminToken = await createBrandAdmin(
-        getTestFactoriesDeps(),
+        deps,
         tempSystemAdminToken,
         testBrandId,
       );
@@ -1276,11 +1365,9 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const tempSystemAdminToken = await createSystemAdmin(
-        getTestFactoriesDeps(),
-      );
+      const tempSystemAdminToken = await createSystemAdmin(deps);
       brandAdminToken = await createBrandAdmin(
-        getTestFactoriesDeps(),
+        deps,
         tempSystemAdminToken,
         testBrandId,
       );
@@ -1332,11 +1419,9 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const tempSystemAdminToken = await createSystemAdmin(
-        getTestFactoriesDeps(),
-      );
+      const tempSystemAdminToken = await createSystemAdmin(deps);
       brandAdminToken = await createBrandAdmin(
-        getTestFactoriesDeps(),
+        deps,
         tempSystemAdminToken,
         testBrandId,
       );
@@ -1403,11 +1488,9 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const tempSystemAdminToken = await createSystemAdmin(
-        getTestFactoriesDeps(),
-      );
+      const tempSystemAdminToken = await createSystemAdmin(deps);
       brandAdminToken = await createBrandAdmin(
-        getTestFactoriesDeps(),
+        deps,
         tempSystemAdminToken,
         testBrandId,
       );
@@ -1463,11 +1546,9 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const tempSystemAdminToken = await createSystemAdmin(
-        getTestFactoriesDeps(),
-      );
+      const tempSystemAdminToken = await createSystemAdmin(deps);
       brandAdminToken = await createBrandAdmin(
-        getTestFactoriesDeps(),
+        deps,
         tempSystemAdminToken,
         testBrandId,
       );
@@ -1532,11 +1613,9 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      const tempSystemAdminToken = await createSystemAdmin(
-        getTestFactoriesDeps(),
-      );
+      const tempSystemAdminToken = await createSystemAdmin(deps);
       brandAdminToken = await createBrandAdmin(
-        getTestFactoriesDeps(),
+        deps,
         tempSystemAdminToken,
         testBrandId,
       );
@@ -1605,14 +1684,15 @@ describe('Brands Endpoints (e2e)', () => {
       });
       brandsToCleanup.push(otherBrand.id);
 
-      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
+      systemAdminToken = await createSystemAdmin(deps);
+      systemAdminToken = await createSystemAdmin(deps);
       brandAdminToken = await createBrandAdmin(
-        getTestFactoriesDeps(),
+        deps,
         systemAdminToken,
         testBrandId,
       );
       otherBrandAdminToken = await createBrandAdmin(
-        getTestFactoriesDeps(),
+        deps,
         systemAdminToken,
         otherBrand.id,
       );
@@ -1698,7 +1778,8 @@ describe('Brands Endpoints (e2e)', () => {
       });
       testBrandId = brand.id;
 
-      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
+      systemAdminToken = await createSystemAdmin(deps);
+      systemAdminToken = await createSystemAdmin(deps);
     });
 
     it('should soft delete brand as SYSTEM_ADMIN', async () => {
@@ -1735,7 +1816,8 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
+      systemAdminToken = await createSystemAdmin(deps);
+      systemAdminToken = await createSystemAdmin(deps);
     });
 
     it('should reject brand as SYSTEM_ADMIN', async () => {
@@ -1787,7 +1869,8 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
+      systemAdminToken = await createSystemAdmin(deps);
+      systemAdminToken = await createSystemAdmin(deps);
     });
 
     it('should suspend brand as SYSTEM_ADMIN', async () => {
@@ -1827,7 +1910,8 @@ describe('Brands Endpoints (e2e)', () => {
     let testRegionId: string;
 
     beforeAll(async () => {
-      systemAdminToken = await createSystemAdmin(getTestFactoriesDeps());
+      systemAdminToken = await createSystemAdmin(deps);
+      systemAdminToken = await createSystemAdmin(deps);
 
       // Create test brand
       const brand = await prisma.brand.create({
@@ -1886,7 +1970,7 @@ describe('Brands Endpoints (e2e)', () => {
 
       // Create BRAND_ADMIN
       brandAdminToken = await createBrandAdmin(
-        getTestFactoriesDeps(),
+        deps,
         systemAdminToken,
         testBrandId,
       );
@@ -1910,7 +1994,7 @@ describe('Brands Endpoints (e2e)', () => {
       });
 
       it('should return 403 for non-BRAND_ADMIN', async () => {
-        const userToken = await createRegularUser(getTestFactoriesDeps());
+        const userToken = await createRegularUser(deps);
 
         await request(
           app.getHttpServer() as unknown as Parameters<typeof request>[0],
@@ -1951,7 +2035,7 @@ describe('Brands Endpoints (e2e)', () => {
       });
 
       it('should return 403 for non-BRAND_ADMIN', async () => {
-        const userToken = await createRegularUser(getTestFactoriesDeps());
+        const userToken = await createRegularUser(deps);
 
         await request(
           app.getHttpServer() as unknown as Parameters<typeof request>[0],
@@ -1983,7 +2067,7 @@ describe('Brands Endpoints (e2e)', () => {
       });
 
       it('should return 403 for non-BRAND_ADMIN', async () => {
-        const userToken = await createRegularUser(getTestFactoriesDeps());
+        const userToken = await createRegularUser(deps);
 
         await request(
           app.getHttpServer() as unknown as Parameters<typeof request>[0],
@@ -2085,7 +2169,7 @@ describe('Brands Endpoints (e2e)', () => {
       });
 
       it('should return 403 for non-BRAND_ADMIN', async () => {
-        const userToken = await createRegularUser(getTestFactoriesDeps());
+        const userToken = await createRegularUser(deps);
 
         await request(
           app.getHttpServer() as unknown as Parameters<typeof request>[0],
