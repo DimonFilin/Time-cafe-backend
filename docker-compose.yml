@@ -62,12 +62,38 @@ services:
     networks:
       - time-cafe-network
 
+  # Appsmith Admin Panel
+  appsmith:
+    image: appsmith/appsmith-ce:latest
+    container_name: time-cafe-appsmith
+    environment:
+      APPSMITH_ENCRYPTION_PASSWORD: timecaffe-encryption-key-2024
+      APPSMITH_ADMIN_EMAILS: admin@timecaffe.com
+      APPSMITH_DISABLE_EMBEDDED_KEYCLOAK: "1"  # Отключаем встроенный Keycloak
+      APPSMITH_DISABLE_TELEMETRY: "1"  # Отключаем телеметрию
+    ports:
+      - "8081:80"  # Изменен порт чтобы не конфликтовать с Keycloak
+    volumes:
+      - appsmith_data:/appsmith-stacks
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      - keycloak  # Appsmith запустится после Keycloak
+    networks:
+      - time-cafe-network
+
 networks:
   time-cafe-network:
     driver: bridge
 
 volumes:
   minio_data:
+    driver: local
+  appsmith_data:
     driver: local
 
 # volumes:
