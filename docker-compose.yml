@@ -69,10 +69,10 @@ services:
     environment:
       APPSMITH_ENCRYPTION_PASSWORD: timecaffe-encryption-key-2024
       APPSMITH_ADMIN_EMAILS: admin@timecaffe.com
-      APPSMITH_DISABLE_EMBEDDED_KEYCLOAK: "1"  # Отключаем встроенный Keycloak
-      APPSMITH_DISABLE_TELEMETRY: "1"  # Отключаем телеметрию
+      APPSMITH_DISABLE_EMBEDDED_KEYCLOAK: "1"  
+      APPSMITH_DISABLE_TELEMETRY: "1" 
     ports:
-      - "8081:80"  # Изменен порт чтобы не конфликтовать с Keycloak
+      - "8081:80" 
     volumes:
       - appsmith_data:/appsmith-stacks
     healthcheck:
@@ -82,7 +82,7 @@ services:
       retries: 5
       start_period: 60s
     depends_on:
-      - keycloak  # Appsmith запустится после Keycloak
+      - keycloak 
     networks:
       - time-cafe-network
 

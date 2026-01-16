@@ -8,9 +8,10 @@ import { KeycloakService } from './services/keycloak.service';
 import { AuthService } from './services/auth.service';
 import { KeycloakWebhookService } from './services/keycloak-webhook.service';
 import { UsersModule } from '../users/users.module';
+import { PrismaModule } from '../../prisma/prisma.module';
 
 @Module({
-  imports: [KeycloakModule, HttpModule, UsersModule],
+  imports: [KeycloakModule, HttpModule, UsersModule, PrismaModule],
   controllers: [AuthController, AuthTestController, KeycloakWebhookController],
   providers: [KeycloakService, AuthService, KeycloakWebhookService],
   exports: [

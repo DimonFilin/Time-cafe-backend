@@ -682,6 +682,386 @@ describe('Auth Endpoints (e2e)', () => {
         .expect(401);
     });
   });
+
+  describe('POST /auth/login/lookup', () => {
+    it('should return accounts list for valid credentials', async () => {
+      const email = `lookup-${Date.now()}@test.com`;
+      const password = 'Test123!@#';
+
+      // Create user first
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email,
+          password,
+          firstName: 'Lookup',
+          lastName: 'User',
+        })
+        .expect(201);
+
+      // Test lookup
+      const response = await request(app.getHttpServer())
+        .post('/auth/login/lookup')
+        .send({
+          email,
+          password,
+        })
+        .expect(200);
+
+      expect(response.body).toHaveProperty('accounts');
+      expect(response.body).toHaveProperty('lookupToken');
+      expect(Array.isArray(response.body.accounts)).toBe(true);
+      expect(response.body.accounts.length).toBeGreaterThan(0);
+      expect(response.body.accounts[0]).toHaveProperty('id');
+      expect(response.body.accounts[0]).toHaveProperty('displayName');
+      expect(response.body.accounts[0]).toHaveProperty('role');
+    });
+
+    it('should return user and worker accounts if both exist', async () => {
+      const email = `multi-${Date.now()}@test.com`;
+      const password = 'Test123!@#';
+
+      // Create user
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email,
+          password,
+          firstName: 'Multi',
+          lastName: 'User',
+        })
+        .expect(201);
+
+      // Get keycloakId from user
+      const user = await prisma.user.findFirst({
+        where: { email },
+      });
+      if (!user) throw new Error('User not found');
+
+      // Create worker account with same keycloakId
+      await prisma.workerAccount.create({
+        data: {
+          keycloakId: user.keycloakId,
+          email,
+          firstName: 'Worker',
+          lastName: 'Account',
+          role: 'WORKER',
+        },
+      });
+
+      // Test lookup
+      const response = await request(app.getHttpServer())
+        .post('/auth/login/lookup')
+        .send({
+          email,
+          password,
+        })
+        .expect(200);
+
+      expect(response.body.accounts.length).toBe(2);
+      const roles = response.body.accounts.map((a: any) => a.role);
+      expect(roles).toContain('USER');
+      expect(roles).toContain('WORKER');
+    });
+
+    it('should return 401 for invalid credentials', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/login/lookup')
+        .send({
+          email: 'nonexistent@test.com',
+          password: 'WrongPassword123!',
+        })
+        .expect(401);
+    });
+
+    it('should return 400 for invalid email format', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/login/lookup')
+        .send({
+          email: 'invalid-email',
+          password: 'Test123!@#',
+        })
+        .expect(400);
+    });
+  });
+
+  describe('POST /auth/login/select', () => {
+    it('should select user account and return tokens', async () => {
+      const email = `select-${Date.now()}@test.com`;
+      const password = 'Test123!@#';
+
+      // Create user
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email,
+          password,
+          firstName: 'Select',
+          lastName: 'User',
+        })
+        .expect(201);
+
+      // Get lookup token
+      const lookupResponse = await request(app.getHttpServer())
+        .post('/auth/login/lookup')
+        .send({
+          email,
+          password,
+        })
+        .expect(200);
+
+      const lookupToken = lookupResponse.body.lookupToken;
+      const accountId = lookupResponse.body.accounts[0].id;
+
+      // Select account
+      const selectResponse = await request(app.getHttpServer())
+        .post('/auth/login/select')
+        .send({
+          accountId,
+          lookupToken,
+        })
+        .expect(200);
+
+      expect(selectResponse.body).toHaveProperty('accessToken');
+      expect(selectResponse.body).toHaveProperty('refreshToken');
+      expect(selectResponse.body).toHaveProperty('expiresIn');
+      expect(selectResponse.body).toHaveProperty('user');
+      expect(selectResponse.body.user.email).toBe(email);
+    });
+
+    it('should select worker account and return tokens', async () => {
+      const email = `worker-select-${Date.now()}@test.com`;
+      const password = 'Test123!@#';
+
+      // Create user first (needed for keycloak)
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email,
+          password,
+          firstName: 'Worker',
+          lastName: 'Select',
+        })
+        .expect(201);
+
+      // Get keycloakId
+      const user = await prisma.user.findFirst({
+        where: { email },
+      });
+      if (!user) throw new Error('User not found');
+
+      // Create worker account
+      const worker = await prisma.workerAccount.create({
+        data: {
+          keycloakId: user.keycloakId,
+          email,
+          firstName: 'Worker',
+          lastName: 'Account',
+          role: 'CAFE_ADMIN',
+        },
+      });
+
+      // Get lookup token
+      const lookupResponse = await request(app.getHttpServer())
+        .post('/auth/login/lookup')
+        .send({
+          email,
+          password,
+        })
+        .expect(200);
+
+      const lookupToken = lookupResponse.body.lookupToken;
+      const workerAccount = lookupResponse.body.accounts.find(
+        (a: any) => a.role === 'CAFE_ADMIN',
+      );
+
+      // Select worker account
+      const selectResponse = await request(app.getHttpServer())
+        .post('/auth/login/select')
+        .send({
+          accountId: workerAccount.id,
+          lookupToken,
+        })
+        .expect(200);
+
+      expect(selectResponse.body).toHaveProperty('accessToken');
+      expect(selectResponse.body).toHaveProperty('refreshToken');
+      expect(selectResponse.body.user.id).toBe(worker.id);
+    });
+
+    it('should return 400 for invalid account ID', async () => {
+      const email = `invalid-select-${Date.now()}@test.com`;
+      const password = 'Test123!@#';
+
+      // Create user
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email,
+          password,
+          firstName: 'Invalid',
+          lastName: 'Select',
+        })
+        .expect(201);
+
+      // Get lookup token
+      const lookupResponse = await request(app.getHttpServer())
+        .post('/auth/login/lookup')
+        .send({
+          email,
+          password,
+        })
+        .expect(200);
+
+      const lookupToken = lookupResponse.body.lookupToken;
+
+      // Try to select invalid account
+      await request(app.getHttpServer())
+        .post('/auth/login/select')
+        .send({
+          accountId: '00000000-0000-0000-0000-000000000000',
+          lookupToken,
+        })
+        .expect(400);
+    });
+
+    it('should return 401 for invalid lookup token', async () => {
+      const email = `token-select-${Date.now()}@test.com`;
+      const password = 'Test123!@#';
+
+      // Create user
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email,
+          password,
+          firstName: 'Token',
+          lastName: 'Select',
+        })
+        .expect(201);
+
+      // Get account ID
+      const user = await prisma.user.findFirst({
+        where: { email },
+      });
+      if (!user) throw new Error('User not found');
+
+      // Try to select with invalid token
+      await request(app.getHttpServer())
+        .post('/auth/login/select')
+        .send({
+          accountId: user.id,
+          lookupToken: 'invalid-token',
+        })
+        .expect(401);
+    });
+  });
+
+  describe('GET /auth/me (updated)', () => {
+    it('should return user profile with role USER', async () => {
+      const email = `me-user-${Date.now()}@test.com`;
+      const password = 'Test123!@#';
+
+      // Create user and login
+      const registerResponse = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email,
+          password,
+          firstName: 'Me',
+          lastName: 'User',
+        })
+        .expect(201);
+
+      const token = registerResponse.body.accessToken;
+
+      // Get me
+      const meResponse = await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(meResponse.body).toHaveProperty('role');
+      expect(meResponse.body.role).toBe('USER');
+      expect(meResponse.body).toHaveProperty('brandId');
+      expect(meResponse.body).toHaveProperty('cafeId');
+      expect(meResponse.body.brandId).toBeNull();
+      expect(meResponse.body.cafeId).toBeNull();
+    });
+
+    it('should return worker profile with role and brandId/cafeId', async () => {
+      const email = `me-worker-${Date.now()}@test.com`;
+      const password = 'Test123!@#';
+
+      // Create user first
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          email,
+          password,
+          firstName: 'Me',
+          lastName: 'Worker',
+        })
+        .expect(201);
+
+      // Get keycloakId
+      const user = await prisma.user.findFirst({
+        where: { email },
+      });
+      if (!user) throw new Error('User not found');
+
+      // Create brand and worker
+      const brand = await prisma.brand.create({
+        data: {
+          name: `Test Brand ${Date.now()}`,
+        },
+      });
+
+      const worker = await prisma.workerAccount.create({
+        data: {
+          keycloakId: user.keycloakId,
+          email,
+          firstName: 'Worker',
+          lastName: 'Account',
+          role: 'BRAND_ADMIN',
+          brandId: brand.id,
+        },
+      });
+
+      // Login as worker using lookup/select
+      const lookupResponse = await request(app.getHttpServer())
+        .post('/auth/login/lookup')
+        .send({
+          email,
+          password,
+        })
+        .expect(200);
+
+      const workerAccount = lookupResponse.body.accounts.find(
+        (a: any) => a.role === 'BRAND_ADMIN',
+      );
+
+      const selectResponse = await request(app.getHttpServer())
+        .post('/auth/login/select')
+        .send({
+          accountId: workerAccount.id,
+          lookupToken: lookupResponse.body.lookupToken,
+        })
+        .expect(200);
+
+      const token = selectResponse.body.accessToken;
+
+      // Get me
+      const meResponse = await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(meResponse.body.role).toBe('BRAND_ADMIN');
+      expect(meResponse.body.brandId).toBe(brand.id);
+      expect(meResponse.body.cafeId).toBeNull();
+    });
+  });
 });
 
 interface AuthResponse {

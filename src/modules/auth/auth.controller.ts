@@ -25,6 +25,10 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { UserProfileDto } from './dto/user-profile.dto';
+import { LoginLookupDto } from './dto/login-lookup.dto';
+import { LoginSelectDto } from './dto/login-select.dto';
+import { LoginLookupResponseDto } from './dto/login-lookup-response.dto';
+import { MeResponseDto } from './dto/me-response.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -91,16 +95,65 @@ export class AuthController {
     return this.authService.refreshToken(dto.refreshToken);
   }
 
+  @Post('login/lookup')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Lookup accounts for email and password',
+    description:
+      'Validates credentials and returns list of available accounts (User and WorkerAccount)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Accounts found successfully',
+    type: LoginLookupResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid credentials',
+  })
+  async loginLookup(
+    @Body() dto: LoginLookupDto,
+  ): Promise<LoginLookupResponseDto> {
+    return this.authService.loginLookup(dto);
+  }
+
+  @Post('login/select')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Select account and get tokens',
+    description:
+      'Selects an account from lookup results and returns access/refresh tokens',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Account selected successfully',
+    type: AuthResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid account ID or lookup token',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid or expired lookup token',
+  })
+  async loginSelect(@Body() dto: LoginSelectDto): Promise<AuthResponseDto> {
+    return this.authService.loginSelect(dto);
+  }
+
   @Get('me')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Get current user profile',
-    description: 'Returns the profile of the currently authenticated user',
+    description:
+      'Returns the profile of the currently authenticated user with role information',
   })
   @ApiResponse({
     status: 200,
     description: 'User profile retrieved successfully',
-    type: UserProfileDto,
+    type: MeResponseDto,
   })
   @ApiResponse({
     status: 401,
@@ -112,12 +165,12 @@ export class AuthController {
   })
   async getProfile(
     @Request() req: { user?: { sub?: string } },
-  ): Promise<UserProfileDto> {
+  ): Promise<MeResponseDto> {
     const keycloakId = req.user?.sub;
     if (!keycloakId) {
       throw new UnauthorizedException('User not authenticated');
     }
-    return this.authService.getProfile(keycloakId);
+    return this.authService.getMe(keycloakId);
   }
 
   @Patch('me')
