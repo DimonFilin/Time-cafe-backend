@@ -20,6 +20,9 @@ import {
 import { CafeListResponseDto } from './dto/cafe-list-response.dto';
 import { GeocodeResponseDto } from './dto/geocode.dto';
 import { ReverseGeocodeResponseDto } from './dto/reverse-geocode.dto';
+import { AdminCafeListQueryDto } from './dto/admin-cafe-list-query.dto';
+import { AdminCafeListResponseDto } from './dto/admin-cafe-list-response.dto';
+import { AdminCafeListItemDto } from './dto/admin-cafe-list-item.dto';
 import {
   NominatimSearchResult,
   NominatimReverseResult,
@@ -469,6 +472,175 @@ export class CafesService {
     const skip = (page - 1) * limit;
     const paginatedItems = items.slice(skip, skip + limit);
 
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      items: paginatedItems,
+      total,
+      page,
+      limit,
+      totalPages,
+    };
+  }
+
+  /**
+   * Get cafes list for SYSTEM_ADMIN (optionally including soft-deleted cafes)
+   */
+  async findAdminList(
+    keycloakId: string,
+    query: AdminCafeListQueryDto,
+  ): Promise<AdminCafeListResponseDto> {
+    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    if (!worker || worker.role !== WorkerRole.SYSTEM_ADMIN) {
+      throw new ForbiddenException(
+        'Only SYSTEM_ADMIN can view admin cafes list',
+      );
+    }
+
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+    const includeDeleted = Boolean(query.includeDeleted);
+
+    const where: Prisma.CafeWhereInput = includeDeleted
+      ? {}
+      : { deletedAt: null };
+
+    // Apply filters
+    if (query.brandId) where.brandId = query.brandId;
+    if (query.regionId) where.regionId = query.regionId;
+    if (query.city) {
+      where.city = {
+        contains: query.city,
+        mode: 'insensitive',
+      };
+    }
+
+    // Apply country filter through region
+    if (query.country) {
+      const regions = await this.prisma.region.findMany({
+        where: {
+          country: {
+            contains: query.country,
+            mode: 'insensitive',
+          },
+        },
+        select: { id: true },
+      });
+      const regionIds = regions.map((r) => r.id);
+      if (regionIds.length > 0) {
+        where.regionId = { in: regionIds };
+      } else {
+        return { items: [], total: 0, page, limit, totalPages: 0 };
+      }
+    }
+
+    // Apply full-text search
+    if (query.search) {
+      where.OR = [
+        {
+          name: {
+            contains: query.search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          address: {
+            contains: query.search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          description: {
+            contains: query.search,
+            mode: 'insensitive',
+          },
+        },
+      ];
+    }
+
+    const allCafes = await this.prisma.cafe.findMany({
+      where,
+      include: {
+        brand: { select: { name: true } },
+        region: { select: { name: true, country: true } },
+      },
+    });
+
+    let items: AdminCafeListItemDto[] = allCafes.map((cafe) => ({
+      id: cafe.id,
+      name: cafe.name,
+      address: cafe.address,
+      city: cafe.city,
+      latitude: cafe.latitude,
+      longitude: cafe.longitude,
+      photos: cafe.photos,
+      rating: cafe.rating || 0,
+      reviewsCount: cafe.reviewsCount,
+      brandId: cafe.brandId,
+      brandName: cafe.brand?.name,
+      deletedAt: cafe.deletedAt ?? null,
+    }));
+
+    // Calculate distances if location provided
+    if (query.latitude !== undefined && query.longitude !== undefined) {
+      items = items.map((item) => {
+        const distance = this.calculateDistance(
+          query.latitude!,
+          query.longitude!,
+          item.latitude,
+          item.longitude,
+        );
+        return { ...item, distance: Math.round(distance * 10) / 10 }; // Round to 1 decimal
+      });
+
+      if (query.radius !== undefined) {
+        items = items.filter((item) => item.distance! <= query.radius!);
+      }
+
+      if (query.sortBy === CafeSortBy.DISTANCE) {
+        items.sort((a, b) => {
+          const distA = a.distance || Infinity;
+          const distB = b.distance || Infinity;
+          return query.sortOrder === SortOrder.ASC
+            ? distA - distB
+            : distB - distA;
+        });
+      }
+    }
+
+    if (query.sortBy !== CafeSortBy.DISTANCE) {
+      if (query.sortBy === CafeSortBy.RATING) {
+        items.sort((a, b) => {
+          const ratingA = a.rating || 0;
+          const ratingB = b.rating || 0;
+          return query.sortOrder === SortOrder.ASC
+            ? ratingA - ratingB
+            : ratingB - ratingA;
+        });
+      } else if (query.sortBy === CafeSortBy.REVIEWS_COUNT) {
+        items.sort((a, b) => {
+          const countA = a.reviewsCount || 0;
+          const countB = b.reviewsCount || 0;
+          return query.sortOrder === SortOrder.ASC
+            ? countA - countB
+            : countB - countA;
+        });
+      } else {
+        items.sort((a, b) => {
+          const cafeA = allCafes.find((c) => c.id === a.id);
+          const cafeB = allCafes.find((c) => c.id === b.id);
+          const dateA = cafeA?.createdAt.getTime() || 0;
+          const dateB = cafeB?.createdAt.getTime() || 0;
+          return query.sortOrder === SortOrder.ASC
+            ? dateA - dateB
+            : dateB - dateA;
+        });
+      }
+    }
+
+    const total = items.length;
+    const skip = (page - 1) * limit;
+    const paginatedItems = items.slice(skip, skip + limit);
     const totalPages = Math.ceil(total / limit);
 
     return {

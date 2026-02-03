@@ -122,47 +122,53 @@ describe('Orders (e2e)', () => {
 
   afterAll(async () => {
     // Clean up test data in correct order (dependencies first)
-    await prisma.orderItem.deleteMany({
-      where: {
-        OR: [
-          { order: { user: { email: { contains: '@test.com' } } } },
-          { order: { user: { email: { contains: 'test-' } } } },
-        ],
-      },
-    });
-    await prisma.order.deleteMany({
-      where: {
-        OR: [
-          { user: { email: { contains: '@test.com' } } },
-          { user: { email: { contains: 'test-' } } },
-          { cafe: { name: { contains: 'Test' } } },
-        ],
-      },
-    });
-    await prisma.cafe.deleteMany({
-      where: {
-        OR: [
-          { name: { contains: 'Test' } },
-          { name: { contains: 'Other Cafe' } },
-          { name: { contains: 'Cafe' } },
-          { brand: { name: { contains: 'Test' } } },
-        ],
-      },
-    });
-    await prisma.brand.deleteMany({
-      where: {
-        OR: [
-          { name: { contains: 'Test' } },
-          { email: { contains: '@test.com' } },
-          { email: { contains: 'test-' } },
-        ],
-      },
-    });
-    await prisma.region.deleteMany({
-      where: {
-        OR: [{ name: { contains: 'Test' } }],
-      },
-    });
+    try {
+      await prisma.orderItem.deleteMany({
+        where: {
+          OR: [
+            { order: { user: { email: { contains: '@test.com' } } } },
+            { order: { user: { email: { contains: 'test-' } } } },
+          ],
+        },
+      });
+      await prisma.order.deleteMany({
+        where: {
+          OR: [
+            { user: { email: { contains: '@test.com' } } },
+            { user: { email: { contains: 'test-' } } },
+            { cafe: { name: { contains: 'Test' } } },
+          ],
+        },
+      });
+      // Delete cafes first (they reference regions)
+      await prisma.cafe.deleteMany({
+        where: {
+          OR: [
+            { name: { contains: 'Test' } },
+            { name: { contains: 'Other Cafe' } },
+            { name: { contains: 'Cafe' } },
+            { brand: { name: { contains: 'Test' } } },
+          ],
+        },
+      });
+      // Then delete regions
+      await prisma.region.deleteMany({
+        where: {
+          OR: [{ name: { contains: 'Test' } }],
+        },
+      });
+      await prisma.brand.deleteMany({
+        where: {
+          OR: [
+            { name: { contains: 'Test' } },
+            { email: { contains: '@test.com' } },
+            { email: { contains: 'test-' } },
+          ],
+        },
+      });
+    } catch (error) {
+      console.error('Cleanup error:', error);
+    }
     await prisma.transaction.deleteMany({
       where: {
         OR: [

@@ -152,29 +152,76 @@ export class AuthService {
 
   async refreshToken(refreshToken: string): Promise<AuthResponseDto> {
     try {
+      this.logger.debug('Starting token refresh...');
       const tokens: TokenResponse =
         await this.keycloakService.refreshToken(refreshToken);
 
+      this.logger.debug('Token refreshed from Keycloak successfully');
+
       const decodedToken = this.decodeToken(tokens.access_token);
       if (!decodedToken || !decodedToken.sub) {
+        this.logger.error('Invalid token: no sub claim');
         throw new UnauthorizedException('Invalid token');
       }
 
       const keycloakId = decodedToken.sub;
+      this.logger.debug(`Looking up account with keycloakId: ${keycloakId}`);
+
+      // Try to find User first
       const user = await this.usersService.findByKeycloakId(keycloakId);
 
-      if (!user) {
-        throw new UnauthorizedException('User not found');
+      if (user) {
+        this.logger.debug(`User found: ${user.id}, email: ${user.email}`);
+        return {
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          expiresIn: tokens.expires_in,
+          user: this.mapToUserProfile(user),
+        };
       }
 
-      return {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        expiresIn: tokens.expires_in,
-        user: this.mapToUserProfile(user),
-      };
+      // If not found in User, try WorkerAccount
+      this.logger.debug('User not found, checking WorkerAccount...');
+      const workerAccount = await this.prisma.workerAccount.findFirst({
+        where: {
+          keycloakId,
+          deletedAt: null,
+        },
+        include: {
+          brand: true,
+          cafe: true,
+        },
+      });
+
+      if (workerAccount) {
+        this.logger.debug(
+          `WorkerAccount found: ${workerAccount.id}, email: ${workerAccount.email}, role: ${workerAccount.role}`,
+        );
+        return {
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          expiresIn: tokens.expires_in,
+          user: this.mapWorkerToProfile(workerAccount),
+        };
+      }
+
+      // Neither User nor WorkerAccount found
+      this.logger.error(
+        `Account not found in database for keycloakId: ${keycloakId}. Token claims: ${JSON.stringify(
+          {
+            sub: decodedToken.sub,
+            email: decodedToken.email,
+            preferred_username: decodedToken.preferred_username,
+          },
+        )}`,
+      );
+      throw new UnauthorizedException('User not found');
     } catch (error: unknown) {
       this.logger.error('Token refresh failed', error);
+      // Re-throw if it's already an UnauthorizedException with specific message
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
   }
@@ -198,6 +245,9 @@ export class AuthService {
       avatar: user.avatar ?? undefined,
       balance: user.balance.toString(),
       createdAt: user.createdAt,
+      role: 'USER',
+      brandId: null,
+      cafeId: null,
     };
   }
 
@@ -220,6 +270,9 @@ export class AuthService {
       avatar: undefined,
       balance: '0.00',
       createdAt: worker.createdAt,
+      role: worker.role,
+      brandId: worker.brandId ?? null,
+      cafeId: worker.cafeId ?? null,
     };
   }
 
@@ -296,9 +349,29 @@ export class AuthService {
   async loginSelect(dto: LoginSelectDto): Promise<AuthResponseDto> {
     try {
       // Use lookup token (refresh token) to get new access token
-      const tokens: TokenResponse = await this.keycloakService.refreshToken(
-        dto.lookupToken,
-      );
+      // Add retry logic for test stability
+      let tokens: TokenResponse | null = null;
+      let retries = 3;
+      let lastError: unknown = null;
+
+      while (retries > 0 && !tokens) {
+        try {
+          tokens = await this.keycloakService.refreshToken(dto.lookupToken);
+          break;
+        } catch (error) {
+          lastError = error;
+          retries--;
+          if (retries > 0) {
+            // Wait a bit before retrying (for test stability)
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
+        }
+      }
+
+      if (!tokens) {
+        this.logger.error('Failed to refresh token after retries', lastError);
+        throw new UnauthorizedException('Invalid or expired refresh token');
+      }
 
       // Decode new access token to get keycloakId
       const decodedToken = this.decodeToken(tokens.access_token);
@@ -378,20 +451,77 @@ export class AuthService {
     return this.mapToUserProfile(user);
   }
 
-  async getMe(keycloakId: string): Promise<MeResponseDto> {
-    // Check for WorkerAccount first (more specific)
-    const workerAccount = await this.prisma.workerAccount.findFirst({
+  async getMe(
+    keycloakId: string,
+    selectedAccountId?: string,
+  ): Promise<MeResponseDto> {
+    // If accountId is provided (from cookie), use it to find the specific account
+    if (selectedAccountId) {
+      // Check if it's a WorkerAccount
+      const workerAccount = await this.prisma.workerAccount.findFirst({
+        where: {
+          id: selectedAccountId,
+          keycloakId,
+          deletedAt: null,
+        },
+        include: {
+          brand: true,
+          cafe: true,
+        },
+      });
+
+      if (workerAccount) {
+        return {
+          id: workerAccount.id,
+          email: workerAccount.email,
+          firstName: workerAccount.firstName,
+          lastName: workerAccount.lastName,
+          phone: undefined,
+          avatar: undefined,
+          balance: '0.00',
+          createdAt: workerAccount.createdAt,
+          role: workerAccount.role,
+          brandId: workerAccount.brandId ?? null,
+          cafeId: workerAccount.cafeId ?? null,
+        };
+      }
+
+      // Check if it's a User account
+      const user = await this.usersService.findById(selectedAccountId);
+      if (user && user.keycloakId === keycloakId) {
+        return {
+          ...this.mapToUserProfile(user),
+          role: 'USER',
+          brandId: null,
+          cafeId: null,
+        };
+      }
+
+      // If selected account not found, throw error instead of fallback
+      throw new UnauthorizedException('Selected account not found');
+    }
+
+    // No account selected - require explicit account selection for multi-account users
+    // Check if user has multiple accounts
+    const workerAccounts = await this.prisma.workerAccount.findMany({
       where: {
         keycloakId,
         deletedAt: null,
       },
-      include: {
-        brand: true,
-        cafe: true,
-      },
     });
 
-    if (workerAccount) {
+    const user = await this.usersService.findByKeycloakId(keycloakId);
+    const hasMultipleAccounts = workerAccounts.length + (user ? 1 : 0) > 1;
+
+    if (hasMultipleAccounts) {
+      throw new UnauthorizedException(
+        'Account not selected. Please select an account first.',
+      );
+    }
+
+    // Single account users - return the only account
+    if (workerAccounts.length === 1) {
+      const workerAccount = workerAccounts[0];
       return {
         id: workerAccount.id,
         email: workerAccount.email,
@@ -407,8 +537,7 @@ export class AuthService {
       };
     }
 
-    // Check for User account
-    const user = await this.usersService.findByKeycloakId(keycloakId);
+    // Only User account
     if (user) {
       return {
         ...this.mapToUserProfile(user),

@@ -129,11 +129,21 @@ describe('Brands Endpoints (e2e)', () => {
           ],
         },
       });
-      await prisma.region.deleteMany({
-        where: {
-          OR: [{ name: { contains: 'Test' } }],
-        },
-      });
+      try {
+        await prisma.region.deleteMany({
+          where: {
+            OR: [{ name: { contains: 'Test' } }],
+          },
+        });
+      } catch (regionError) {
+        // Ignore foreign key errors - some cafes might still exist
+        if (
+          regionError instanceof Error &&
+          !regionError.message.includes('cafes_regionId_fkey')
+        ) {
+          throw regionError;
+        }
+      }
       await prisma.transaction.deleteMany({
         where: {
           OR: [
@@ -529,9 +539,14 @@ describe('Brands Endpoints (e2e)', () => {
 
   describe('POST /brands/:id/documents', () => {
     let testBrandId: string;
-    let userToken: string;
+    let brandAdminToken: string;
 
     beforeAll(async () => {
+      const deps = getTestFactoriesDeps(app, prisma, keycloakService);
+
+      // Create system admin first
+      const systemAdminToken = await createSystemAdmin(deps);
+
       // Create a test brand
       const brand = await prisma.brand.create({
         data: {
@@ -546,21 +561,12 @@ describe('Brands Endpoints (e2e)', () => {
       testBrandId = brand.id;
       brandsToCleanup.push(testBrandId);
 
-      // Register and login as user to get token
-      const registerResponse = await request(
-        app.getHttpServer() as unknown as Parameters<typeof request>[0],
-      )
-        .post('/auth/register')
-        .send({
-          email: `docstest-${Date.now()}@test.com`,
-          password: 'Test123!@#',
-          firstName: 'Test',
-          lastName: 'User',
-        })
-        .expect(201);
-
-      userToken = (registerResponse.body as { accessToken: string })
-        .accessToken;
+      // Create brand admin for this brand
+      brandAdminToken = await createBrandAdmin(
+        deps,
+        systemAdminToken,
+        testBrandId,
+      );
     });
 
     it('should upload a document for brand', async () => {
@@ -571,7 +577,7 @@ describe('Brands Endpoints (e2e)', () => {
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
         .post(`/brands/${testBrandId}/documents`)
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${brandAdminToken}`)
         .field('type', 'REGISTRATION')
         .field('name', 'Test Registration Document')
         .attach('file', testFile, fileName)
@@ -597,7 +603,7 @@ describe('Brands Endpoints (e2e)', () => {
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
         .post(`/brands/${testBrandId}/documents`)
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${brandAdminToken}`)
         .field('type', 'REGISTRATION')
         .field('name', 'Test Document')
         .expect(400);
@@ -610,7 +616,7 @@ describe('Brands Endpoints (e2e)', () => {
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
         .post(`/brands/${testBrandId}/documents`)
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${brandAdminToken}`)
         .field('type', 'INVALID_TYPE')
         .field('name', 'Test Document')
         .attach('file', testFile, 'test.pdf')
@@ -625,7 +631,7 @@ describe('Brands Endpoints (e2e)', () => {
         app.getHttpServer() as unknown as Parameters<typeof request>[0],
       )
         .post(`/brands/${nonExistentId}/documents`)
-        .set('Authorization', `Bearer ${userToken}`)
+        .set('Authorization', `Bearer ${brandAdminToken}`)
         .field('type', 'REGISTRATION')
         .field('name', 'Test Document')
         .attach('file', testFile, 'test.pdf')

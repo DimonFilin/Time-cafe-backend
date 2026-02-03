@@ -1,17 +1,15 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsOptional,
-  IsEnum,
-  IsUUID,
   IsInt,
   Min,
   Max,
   IsBoolean,
+  IsString,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { WorkerRole } from '@prisma/client';
 
-export class WorkerListQueryDto {
+export class AdminUserListQueryDto {
   @ApiPropertyOptional({
     example: 1,
     description: 'Page number (starts from 1)',
@@ -36,33 +34,24 @@ export class WorkerListQueryDto {
   limit?: number;
 
   @ApiPropertyOptional({
-    example: 'BRAND_ADMIN',
-    description: 'Filter by worker role',
-    enum: WorkerRole,
+    example: 'user@example.com',
+    description: 'Filter by email (partial match)',
   })
   @IsOptional()
-  @IsEnum(WorkerRole)
-  role?: WorkerRole;
+  @IsString()
+  email?: string;
 
   @ApiPropertyOptional({
-    example: '123e4567-e89b-12d3-a456-426614174000',
-    description: 'Filter by brand ID',
+    example: 'John',
+    description: 'Filter by first name (partial match)',
   })
   @IsOptional()
-  @IsUUID()
-  brandId?: string;
-
-  @ApiPropertyOptional({
-    example: '123e4567-e89b-12d3-a456-426614174001',
-    description: 'Filter by cafe ID',
-  })
-  @IsOptional()
-  @IsUUID()
-  cafeId?: string;
+  @IsString()
+  firstName?: string;
 
   @ApiPropertyOptional({
     example: false,
-    description: 'Include soft-deleted workers (SYSTEM_ADMIN only)',
+    description: 'Include soft-deleted users',
     default: false,
   })
   @IsOptional()

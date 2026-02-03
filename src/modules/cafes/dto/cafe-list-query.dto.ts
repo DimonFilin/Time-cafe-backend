@@ -131,12 +131,12 @@ export class CafeListQueryDto {
     example: 5,
     description: 'Search radius in kilometers',
     minimum: 0.1,
-    maximum: 1000,
+    maximum: 10,
   })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0.1)
-  @Max(1000)
+  @Max(10)
   radius?: number;
 }

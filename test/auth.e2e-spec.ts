@@ -1041,7 +1041,13 @@ describe('Auth Endpoints (e2e)', () => {
         (a: any) => a.role === 'BRAND_ADMIN',
       );
 
-      const selectResponse = await request(app.getHttpServer())
+      // Small delay to ensure refresh token is ready
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Create agent to preserve cookies
+      const agent = request.agent(app.getHttpServer());
+
+      const selectResponse = await agent
         .post('/auth/login/select')
         .send({
           accountId: workerAccount.id,
@@ -1051,8 +1057,11 @@ describe('Auth Endpoints (e2e)', () => {
 
       const token = selectResponse.body.accessToken;
 
-      // Get me
-      const meResponse = await request(app.getHttpServer())
+      // Small delay to ensure token is fully processed
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Get me - use agent with cookies
+      const meResponse = await agent
         .get('/auth/me')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);

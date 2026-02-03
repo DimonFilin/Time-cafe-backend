@@ -188,6 +188,27 @@ export async function cleanupTestData(prisma: PrismaService) {
       },
     });
 
+    // Clean regions AFTER cafes (referenced by cafes)
+    try {
+      await prisma.region.deleteMany({
+        where: {
+          OR: [
+            { name: { contains: 'Test' } },
+            { name: { contains: 'Other' } },
+            { name: { contains: 'Delete' } },
+          ],
+        },
+      });
+    } catch (regionError) {
+      // Ignore foreign key errors - some cafes might still exist
+      if (
+        regionError instanceof Error &&
+        !regionError.message.includes('cafes_regionId_fkey')
+      ) {
+        throw regionError;
+      }
+    }
+
     // Clean brands AFTER cafes (referenced by cafes and worker accounts)
     await prisma.brand.deleteMany({
       where: {
@@ -214,17 +235,6 @@ export async function cleanupTestData(prisma: PrismaService) {
           { email: { contains: 'systemadmin-' } },
           { email: { contains: 'user-' } },
           { email: { contains: '-test-' } },
-        ],
-      },
-    });
-
-    // Clean regions (referenced by cafes)
-    await prisma.region.deleteMany({
-      where: {
-        OR: [
-          { name: { contains: 'Test' } },
-          { name: { contains: 'Other' } },
-          { name: { contains: 'Delete' } },
         ],
       },
     });

@@ -17,6 +17,7 @@ import { SystemSettingsModule } from './modules/system-settings/system-settings.
 import { OrdersModule } from './modules/orders/orders.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
+import { RegionsModule } from './modules/regions/regions.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { AppointmentsModule } from './modules/appointments/appointments.module';
     OrdersModule,
     ReviewsModule,
     AppointmentsModule,
+    RegionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

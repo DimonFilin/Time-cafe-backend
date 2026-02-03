@@ -25,4 +25,7 @@ export class WorkerProfileDto {
 
   @ApiProperty()
   createdAt: Date;
+
+  @ApiProperty({ required: false, nullable: true })
+  deletedAt?: Date | null;
 }

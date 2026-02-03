@@ -124,6 +124,10 @@ export class StorageService implements OnModuleInit {
     metadata?: Record<string, string>,
   ): Promise<FileUploadResultDto> {
     try {
+      this.logger.log(
+        `Uploading file to ${bucket}/${path} (size: ${file.size} bytes)`,
+      );
+
       const command = new PutObjectCommand({
         Bucket: bucket,
         Key: path,
@@ -133,6 +137,10 @@ export class StorageService implements OnModuleInit {
       });
 
       const response = await this.s3Client.send(command);
+
+      this.logger.log(
+        `File uploaded successfully: ${bucket}/${path}, ETag: ${response.ETag}`,
+      );
 
       const endpoint =
         this.configService.get<string>('STORAGE_ENDPOINT') ||
@@ -189,6 +197,15 @@ export class StorageService implements OnModuleInit {
     expiresIn: number = 3600,
   ): Promise<string> {
     try {
+      this.logger.log(`Getting file URL for ${bucket}/${path}`);
+
+      // First check if file exists
+      const exists = await this.fileExists(bucket, path);
+      if (!exists) {
+        this.logger.warn(`File not found: ${bucket}/${path}`);
+        throw new NotFoundException(`File not found: ${bucket}/${path}`);
+      }
+
       const command = new GetObjectCommand({
         Bucket: bucket,
         Key: path,
@@ -197,6 +214,9 @@ export class StorageService implements OnModuleInit {
       // Use signed URL for all files (MinIO requires signature for access)
       // To make bucket public, configure it through MinIO policies
       const url = await getSignedUrl(this.s3Client, command, { expiresIn });
+
+      this.logger.log(`Generated signed URL for ${bucket}/${path}`);
+
       return url;
     } catch (error: unknown) {
       const errorMessage =

@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
-import { CafesController } from './cafes.controller';
+import { AdminCafesController, CafesController } from './cafes.controller';
 import { CafesService } from './cafes.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { KeycloakModule } from '../auth/keycloak.module';
@@ -16,7 +16,7 @@ import { WorkersModule } from '../workers/workers.module';
       maxRedirects: 5,
     }),
   ],
-  controllers: [CafesController],
+  controllers: [CafesController, AdminCafesController],
   providers: [CafesService],
   exports: [CafesService],
 })

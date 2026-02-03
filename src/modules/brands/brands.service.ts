@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma, BrandStatus, DocumentType, WorkerRole } from '@prisma/client';
+import { Decimal } from '@prisma/client/runtime/library';
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
 import { BrandResponseDto } from './dto/brand-response.dto';
@@ -19,6 +20,10 @@ import { CreateApiKeyResponseDto } from './dto/create-api-key-response.dto';
 import { CafeResponseDto } from '../cafes/dto/cafe-response.dto';
 import { BrandStatsDto } from './dto/brand-stats.dto';
 import { BrandReportDto } from './dto/brand-report.dto';
+import {
+  BrandOrdersAnalyticsDto,
+  BrandPopularItemsDto,
+} from './dto/brand-analytics.dto';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -188,9 +193,15 @@ export class BrandsService {
   }
 
   /**
-   * Delete brand (soft delete)
+   * Delete brand (SYSTEM_ADMIN only)
    */
-  async remove(id: string): Promise<void> {
+  async remove(id: string, keycloakId: string): Promise<void> {
+    // Check if user is SYSTEM_ADMIN
+    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    if (!worker || worker.role !== WorkerRole.SYSTEM_ADMIN) {
+      throw new ForbiddenException('Only SYSTEM_ADMIN can delete brands');
+    }
+
     const brand = await this.prisma.brand.findFirst({
       where: {
         id,
@@ -217,7 +228,7 @@ export class BrandsService {
     brandId: string,
     type: 'logo' | 'banner' | 'documents',
   ): string {
-    return `brands/${brandId}/${type}`;
+    return `${brandId}/${type}`;
   }
 
   /**
@@ -227,6 +238,7 @@ export class BrandsService {
     brandId: string,
     type: DocumentType,
     name: string,
+    keycloakId: string,
     file: {
       buffer: Buffer;
       mimetype: string;
@@ -245,6 +257,9 @@ export class BrandsService {
     if (!brand) {
       throw new NotFoundException(`Brand with ID ${brandId} not found`);
     }
+
+    // Only BRAND_ADMIN (of this brand) or SYSTEM_ADMIN can upload documents
+    await this.checkBrandAccess(brandId, keycloakId);
 
     // Validate file
     FileValidator.validateDocument(file);
@@ -372,17 +387,30 @@ export class BrandsService {
   }
 
   /**
-   * Verify brand (SYSTEM_ADMIN only)
+   * Verify brand (SYSTEM_ADMIN or BRAND_ADMIN of this brand)
    * Checks that all required documents are verified before activation
    */
   async verifyBrand(
     brandId: string,
     keycloakId: string,
   ): Promise<BrandResponseDto> {
-    // Check if user is SYSTEM_ADMIN
+    // Check if user is SYSTEM_ADMIN or BRAND_ADMIN of this brand
     const worker = await this.workersService.findByKeycloakId(keycloakId);
-    if (!worker || worker.role !== WorkerRole.SYSTEM_ADMIN) {
-      throw new ForbiddenException('Only SYSTEM_ADMIN can verify brands');
+    if (!worker) {
+      throw new ForbiddenException('Worker not found');
+    }
+
+    // Allow SYSTEM_ADMIN or BRAND_ADMIN who owns this brand
+    if (worker.role === WorkerRole.BRAND_ADMIN) {
+      if (worker.brandId !== brandId) {
+        throw new ForbiddenException(
+          'BRAND_ADMIN can only verify their own brand',
+        );
+      }
+    } else if (worker.role !== WorkerRole.SYSTEM_ADMIN) {
+      throw new ForbiddenException(
+        'Only SYSTEM_ADMIN or BRAND_ADMIN can verify brands',
+      );
     }
 
     // Check if brand exists
@@ -1087,6 +1115,139 @@ export class BrandsService {
   }
 
   /**
+   * Get signed download URL for document
+   */
+  async getDocumentDownloadUrl(documentId: string): Promise<{ url: string }> {
+    const document = await this.prisma.brandDocument.findFirst({
+      where: { id: documentId },
+    });
+
+    if (!document) {
+      throw new NotFoundException(`Document with ID ${documentId} not found`);
+    }
+
+    // Extract file path from URL
+    // URL format: http://localhost:9000/brands/{brandId}/documents/{filename}
+    // We need: {brandId}/documents/{filename}
+    try {
+      const url = new URL(document.fileUrl);
+      const pathParts = url.pathname.split('/').filter((p) => p);
+      const brandsIndex = pathParts.findIndex((p) => p === 'brands');
+      if (brandsIndex === -1) {
+        throw new Error('Invalid file URL structure');
+      }
+      const filePath = pathParts.slice(brandsIndex + 1).join('/');
+
+      // Generate signed URL valid for 1 hour
+      const signedUrl = await this.storageService.getFileUrl(
+        this.storageService.getBuckets().brands,
+        filePath,
+        3600, // 1 hour
+      );
+
+      this.logger.log(`Generated download URL for document ${documentId}`);
+      return { url: signedUrl };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to generate download URL for document ${documentId}: ${errorMessage}`,
+      );
+      throw new BadRequestException(
+        `Failed to generate download URL: ${errorMessage}`,
+      );
+    }
+  }
+
+  /**
+   * Get signed URL for brand logo
+   */
+  async getLogoUrl(brandId: string): Promise<{ url: string }> {
+    const brand = await this.prisma.brand.findUnique({
+      where: { id: brandId },
+    });
+
+    if (!brand) {
+      throw new NotFoundException(`Brand with ID ${brandId} not found`);
+    }
+
+    if (!brand.logo) {
+      throw new NotFoundException(`Logo not found for brand ${brandId}`);
+    }
+
+    try {
+      const url = new URL(brand.logo);
+      const pathParts = url.pathname.split('/').filter((p) => p);
+      const brandsIndex = pathParts.findIndex((p) => p === 'brands');
+      if (brandsIndex === -1) {
+        throw new Error('Invalid file URL structure');
+      }
+      const filePath = pathParts.slice(brandsIndex + 1).join('/');
+
+      const signedUrl = await this.storageService.getFileUrl(
+        this.storageService.getBuckets().brands,
+        filePath,
+        86400, // 24 hours
+      );
+
+      this.logger.log(`Generated signed URL for logo of brand ${brandId}`);
+      return { url: signedUrl };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to generate signed URL for logo of brand ${brandId}: ${errorMessage}`,
+      );
+      throw new BadRequestException(`Failed to get logo URL: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Get signed URL for brand banner
+   */
+  async getBannerUrl(brandId: string): Promise<{ url: string }> {
+    const brand = await this.prisma.brand.findUnique({
+      where: { id: brandId },
+    });
+
+    if (!brand) {
+      throw new NotFoundException(`Brand with ID ${brandId} not found`);
+    }
+
+    if (!brand.bannerImage) {
+      throw new NotFoundException(`Banner not found for brand ${brandId}`);
+    }
+
+    try {
+      const url = new URL(brand.bannerImage);
+      const pathParts = url.pathname.split('/').filter((p) => p);
+      const brandsIndex = pathParts.findIndex((p) => p === 'brands');
+      if (brandsIndex === -1) {
+        throw new Error('Invalid file URL structure');
+      }
+      const filePath = pathParts.slice(brandsIndex + 1).join('/');
+
+      const signedUrl = await this.storageService.getFileUrl(
+        this.storageService.getBuckets().brands,
+        filePath,
+        86400, // 24 hours
+      );
+
+      this.logger.log(`Generated signed URL for banner of brand ${brandId}`);
+      return { url: signedUrl };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to generate signed URL for banner of brand ${brandId}: ${errorMessage}`,
+      );
+      throw new BadRequestException(
+        `Failed to get banner URL: ${errorMessage}`,
+      );
+    }
+  }
+
+  /**
    * Map Prisma BrandDocument to response DTO
    */
   private mapDocumentToResponseDto(document: {
@@ -1252,6 +1413,7 @@ export class BrandsService {
   async getMyBrandStats(keycloakId: string): Promise<BrandStatsDto> {
     const brandId = await this.getBrandAdminBrandId(keycloakId);
 
+    // Get cafes data
     const cafes = await this.prisma.cafe.findMany({
       where: {
         brandId,
@@ -1267,6 +1429,7 @@ export class BrandsService {
       },
     });
 
+    // Calculate cafe statistics
     const totalCafes = cafes.length;
     const activeCafes = cafes.length; // All non-deleted cafes are considered active
     const totalReviews = cafes.reduce(
@@ -1278,6 +1441,20 @@ export class BrandsService {
         ? cafes.reduce((sum, cafe) => sum + (cafe.rating || 0), 0) /
           cafes.length
         : 0;
+
+    // Calculate order statistics
+    const orders = await this.prisma.order.findMany({
+      where: {
+        cafeId: { in: cafes.map((cafe) => cafe.id) },
+        createdAt: { gte: new Date(new Date().getFullYear(), 0, 1) }, // Current year
+      },
+    });
+
+    const totalOrders = orders.length;
+    const totalRevenue = orders.reduce(
+      (sum, order) => sum.plus(order.totalAmount),
+      new Decimal(0),
+    );
 
     const cafesByCity: Record<string, number> = {};
     const cafesByRegion: Record<string, number> = {};
@@ -1297,6 +1474,8 @@ export class BrandsService {
       activeCafes,
       averageRating: Math.round(averageRating * 100) / 100,
       totalReviews,
+      totalOrders,
+      totalRevenue: parseFloat(totalRevenue.toFixed(2)),
       cafesByCity,
       cafesByRegion,
     };
@@ -1364,6 +1543,205 @@ export class BrandsService {
         createdAt: cafe.createdAt,
       })),
       generatedAt: new Date(),
+    };
+  }
+
+  /**
+   * Get brand orders analytics for BRAND_ADMIN
+   */
+  async getBrandOrdersAnalytics(
+    keycloakId: string,
+  ): Promise<BrandOrdersAnalyticsDto> {
+    const brandId = await this.getBrandAdminBrandId(keycloakId);
+
+    // Get cafes for the brand
+    const cafes = await this.prisma.cafe.findMany({
+      where: {
+        brandId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    const cafeIds = cafes.map((cafe) => cafe.id);
+
+    // Get all orders for the brand's cafes
+    const orders = await this.prisma.order.findMany({
+      where: {
+        cafeId: { in: cafeIds },
+      },
+      select: {
+        totalAmount: true,
+        createdAt: true,
+      },
+    });
+
+    const totalOrders = orders.length;
+    const totalRevenue = orders.reduce(
+      (sum, order) => sum.plus(order.totalAmount),
+      new Decimal(0),
+    );
+
+    // Get orders for current period (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const periodOrders = orders.filter(
+      (order) => order.createdAt >= thirtyDaysAgo,
+    );
+    const periodRevenue = periodOrders.reduce(
+      (sum, order) => sum.plus(order.totalAmount),
+      new Decimal(0),
+    );
+
+    // Generate daily trends for the last 30 days
+    const dailyTrends: Array<{
+      date: string;
+      orders: number;
+      revenue: number;
+    }> = [];
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+
+      // Format date as YYYY-MM-DD
+      const dateStr = date.toISOString().split('T')[0];
+
+      const dayOrders = orders.filter((order) => {
+        const orderDate = new Date(order.createdAt);
+        return orderDate.toISOString().split('T')[0] === dateStr;
+      });
+
+      const dayRevenue = dayOrders.reduce(
+        (sum, order) => sum.plus(order.totalAmount),
+        new Decimal(0),
+      );
+
+      dailyTrends.push({
+        date: dateStr,
+        orders: dayOrders.length,
+        revenue: parseFloat(dayRevenue.toFixed(2)),
+      });
+    }
+
+    // Generate monthly trends for the last 12 months
+    const monthlyTrends: Array<{
+      month: string;
+      orders: number;
+      revenue: number;
+    }> = [];
+    for (let i = 11; i >= 0; i--) {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+
+      const monthName = date.toLocaleString('en-US', { month: 'long' });
+      const year = date.getFullYear();
+
+      const monthOrders = orders.filter((order) => {
+        const orderDate = new Date(order.createdAt);
+        return (
+          orderDate.getMonth() === date.getMonth() &&
+          orderDate.getFullYear() === year
+        );
+      });
+
+      const monthRevenue = monthOrders.reduce(
+        (sum, order) => sum.plus(order.totalAmount),
+        new Decimal(0),
+      );
+
+      monthlyTrends.push({
+        month: `${monthName} ${year}`,
+        orders: monthOrders.length,
+        revenue: parseFloat(monthRevenue.toFixed(2)),
+      });
+    }
+
+    return {
+      totalOrders,
+      totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+      periodOrders: periodOrders.length,
+      periodRevenue: parseFloat(periodRevenue.toFixed(2)),
+      dailyTrends,
+      monthlyTrends,
+    };
+  }
+
+  /**
+   * Get brand popular items analytics for BRAND_ADMIN
+   */
+  async getBrandPopularItemsAnalytics(
+    keycloakId: string,
+  ): Promise<BrandPopularItemsDto> {
+    const brandId = await this.getBrandAdminBrandId(keycloakId);
+
+    // Get cafes for the brand
+    const cafes = await this.prisma.cafe.findMany({
+      where: {
+        brandId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    const cafeIds = cafes.map((cafe) => cafe.id);
+
+    // Get all orders for the brand's cafes
+    const orders = await this.prisma.order.findMany({
+      where: {
+        cafeId: { in: cafeIds },
+      },
+      include: {
+        items: true,
+      },
+    });
+
+    // Aggregate popular items
+    const itemCounts: Record<string, number> = {};
+    let totalItemCount = 0;
+
+    orders.forEach((order) => {
+      order.items.forEach((item) => {
+        itemCounts[item.itemName] =
+          (itemCounts[item.itemName] || 0) + item.quantity;
+        totalItemCount += item.quantity;
+      });
+    });
+
+    // Convert to array and sort by count
+    const popularItems = Object.entries(itemCounts)
+      .map(([name, count]) => ({
+        name,
+        count,
+        percentage:
+          totalItemCount > 0
+            ? parseFloat(((count / totalItemCount) * 100).toFixed(2))
+            : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    // Calculate cafe performance
+    const cafePerformance = cafes
+      .map((cafe) => {
+        const cafeOrders = orders.filter((order) => order.cafeId === cafe.id);
+        const totalOrders = cafeOrders.length;
+
+        return {
+          cafeId: cafe.id,
+          cafeName: cafe.name,
+          totalOrders,
+        };
+      })
+      .sort((a, b) => b.totalOrders - a.totalOrders);
+
+    return {
+      popularItems,
+      cafePerformance,
     };
   }
 }

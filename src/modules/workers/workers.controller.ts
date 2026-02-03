@@ -22,6 +22,7 @@ import {
 } from '@nestjs/swagger';
 import { UseGuards } from '@nestjs/common';
 import { AuthGuard } from 'nest-keycloak-connect';
+import { WorkerRole } from '@prisma/client';
 import { WorkersService } from './workers.service';
 import { KeycloakService } from '../auth/services/keycloak.service';
 import { RegisterWorkerDto } from './dto/register-worker.dto';
@@ -177,6 +178,77 @@ export class WorkersController {
     };
   }
 
+  @Patch(':id')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update worker by ID',
+    description:
+      'Updates worker details. SYSTEM_ADMIN can update any worker, BRAND_ADMIN can update workers in their brand',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Worker updated successfully',
+    type: WorkerProfileDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - insufficient permissions',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Worker not found',
+  })
+  async updateWorkerById(
+    @Param('id') id: string,
+    @Body() dto: UpdateWorkerDto,
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<WorkerProfileDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    const requester = await this.workersService.findByKeycloakId(keycloakId);
+    if (!requester) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Get target worker
+    const targetWorker = await this.workersService.findById(id);
+    if (!targetWorker) {
+      throw new NotFoundException('Worker not found');
+    }
+
+    // Check permissions
+    if (requester.role === WorkerRole.SYSTEM_ADMIN) {
+      // SYSTEM_ADMIN can update any worker
+    } else if (requester.role === WorkerRole.BRAND_ADMIN) {
+      // BRAND_ADMIN can only update workers in their brand
+      if (targetWorker.brandId !== requester.brandId) {
+        throw new BadRequestException('Can only update workers in your brand');
+      }
+    } else {
+      throw new BadRequestException(
+        'Only SYSTEM_ADMIN and BRAND_ADMIN can update workers',
+      );
+    }
+
+    const updated = await this.workersService.update(id, dto);
+
+    return {
+      id: updated.id,
+      email: updated.email,
+      firstName: updated.firstName,
+      lastName: updated.lastName,
+      role: updated.role,
+      brandId: updated.brandId ?? undefined,
+      cafeId: updated.cafeId ?? undefined,
+      createdAt: updated.createdAt,
+    };
+  }
+
   @Delete('me')
   @ApiBearerAuth('JWT-auth')
   @HttpCode(HttpStatus.OK)
@@ -212,6 +284,76 @@ export class WorkersController {
 
     await this.keycloakService.deleteUser(keycloakId);
     await this.workersService.softDelete(worker.id);
+
+    return { message: 'Worker account deleted successfully' };
+  }
+
+  @Delete(':id')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete worker by ID',
+    description:
+      'Soft deletes worker account. SYSTEM_ADMIN can delete any worker, BRAND_ADMIN can delete workers in their brand',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Worker deleted successfully',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - insufficient permissions',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Worker not found',
+  })
+  async deleteWorker(
+    @Param('id') id: string,
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<{ message: string }> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    const requester = await this.workersService.findByKeycloakId(keycloakId);
+    if (!requester) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Get target worker first
+    const targetWorker = await this.workersService.findById(id);
+    if (!targetWorker) {
+      throw new NotFoundException('Worker not found');
+    }
+
+    // Check permissions
+    if (requester.role === WorkerRole.SYSTEM_ADMIN) {
+      // SYSTEM_ADMIN can delete any worker except themselves
+      if (requester.id === id) {
+        throw new BadRequestException('Cannot delete your own account');
+      }
+      if (targetWorker.role === WorkerRole.SYSTEM_ADMIN) {
+        throw new BadRequestException('Cannot delete SYSTEM_ADMIN accounts');
+      }
+    } else if (requester.role === WorkerRole.BRAND_ADMIN) {
+      // BRAND_ADMIN can only delete workers in their brand
+      if (targetWorker.brandId !== requester.brandId) {
+        throw new BadRequestException('Can only delete workers in your brand');
+      }
+      if (requester.id === id) {
+        throw new BadRequestException('Cannot delete your own account');
+      }
+    } else {
+      throw new BadRequestException(
+        'Only SYSTEM_ADMIN and BRAND_ADMIN can delete workers',
+      );
+    }
+
+    await this.keycloakService.deleteUser(targetWorker.keycloakId);
+    await this.workersService.softDelete(id);
 
     return { message: 'Worker account deleted successfully' };
   }
@@ -349,7 +491,80 @@ export class AdminWorkersController {
     };
   }
 
+  @Patch(':id')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update worker by ID',
+    description:
+      'Updates worker details. SYSTEM_ADMIN can update any worker, BRAND_ADMIN can update workers in their brand',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Worker updated successfully',
+    type: WorkerProfileDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - insufficient permissions',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Worker not found',
+  })
+  async updateWorker(
+    @Param('id') id: string,
+    @Body() dto: UpdateWorkerDto,
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<WorkerProfileDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    const requester = await this.workersService.findByKeycloakId(keycloakId);
+    if (!requester) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Get target worker
+    const targetWorker = await this.workersService.findById(id);
+    if (!targetWorker) {
+      throw new NotFoundException('Worker not found');
+    }
+
+    // Check permissions
+    if (requester.role === WorkerRole.SYSTEM_ADMIN) {
+      // SYSTEM_ADMIN can update any worker
+    } else if (requester.role === WorkerRole.BRAND_ADMIN) {
+      // BRAND_ADMIN can only update workers in their brand
+      if (targetWorker.brandId !== requester.brandId) {
+        throw new BadRequestException('Can only update workers in your brand');
+      }
+    } else {
+      throw new BadRequestException(
+        'Only SYSTEM_ADMIN and BRAND_ADMIN can update workers',
+      );
+    }
+
+    const updated = await this.workersService.update(id, dto);
+
+    return {
+      id: updated.id,
+      email: updated.email,
+      firstName: updated.firstName,
+      lastName: updated.lastName,
+      role: updated.role,
+      brandId: updated.brandId ?? undefined,
+      cafeId: updated.cafeId ?? undefined,
+      createdAt: updated.createdAt,
+    };
+  }
+
   @Delete(':id')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Delete worker (SYSTEM_ADMIN only)',

@@ -32,6 +32,8 @@ import {
 } from './dto/reverse-geocode.dto';
 import { AuthGuard } from 'nest-keycloak-connect';
 import { Public } from 'nest-keycloak-connect';
+import { AdminCafeListQueryDto } from './dto/admin-cafe-list-query.dto';
+import { AdminCafeListResponseDto } from './dto/admin-cafe-list-response.dto';
 
 @ApiTags('Cafes')
 @Controller('cafes')
@@ -222,5 +224,38 @@ export class CafesController {
       reverseGeocodeDto.latitude,
       reverseGeocodeDto.longitude,
     );
+  }
+}
+
+@ApiTags('Admin Cafes')
+@Controller('admin/cafes')
+@UseGuards(AuthGuard)
+@ApiBearerAuth()
+export class AdminCafesController {
+  constructor(private readonly cafesService: CafesService) {}
+
+  @Get()
+  @ApiOperation({
+    summary: 'Get cafes list for SYSTEM_ADMIN (optionally including deleted)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Paginated list of cafes (admin)',
+    type: AdminCafeListResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - SYSTEM_ADMIN role required',
+  })
+  async findAdminList(
+    @Query() query: AdminCafeListQueryDto,
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<AdminCafeListResponseDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    return this.cafesService.findAdminList(keycloakId, query);
   }
 }

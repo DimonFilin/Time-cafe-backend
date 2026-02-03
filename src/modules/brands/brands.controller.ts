@@ -47,6 +47,10 @@ import { Public } from 'nest-keycloak-connect';
 import { FileValidator } from '../storage/utils/file-validator';
 import { BrandStatsDto } from './dto/brand-stats.dto';
 import { BrandReportDto } from './dto/brand-report.dto';
+import {
+  BrandOrdersAnalyticsDto,
+  BrandPopularItemsDto,
+} from './dto/brand-analytics.dto';
 import { CafeResponseDto } from '../cafes/dto/cafe-response.dto';
 import { ExportService, ExportFormat } from './services/export.service';
 
@@ -57,6 +61,45 @@ export class BrandsController {
     private readonly brandsService: BrandsService,
     private readonly exportService: ExportService,
   ) {}
+
+  @Get('documents/:docId/download-url')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get signed download URL for document' })
+  @ApiResponse({
+    status: 200,
+    description: 'Signed download URL',
+  })
+  @ApiResponse({ status: 404, description: 'Document not found' })
+  async getDocumentDownloadUrl(
+    @Param('docId') documentId: string,
+  ): Promise<{ url: string }> {
+    return this.brandsService.getDocumentDownloadUrl(documentId);
+  }
+
+  @Get(':id/logo-url')
+  @Public()
+  @ApiOperation({ summary: 'Get signed URL for brand logo' })
+  @ApiResponse({
+    status: 200,
+    description: 'Signed logo URL',
+  })
+  @ApiResponse({ status: 404, description: 'Logo not found' })
+  async getLogoUrl(@Param('id') brandId: string): Promise<{ url: string }> {
+    return this.brandsService.getLogoUrl(brandId);
+  }
+
+  @Get(':id/banner-url')
+  @Public()
+  @ApiOperation({ summary: 'Get signed URL for brand banner' })
+  @ApiResponse({
+    status: 200,
+    description: 'Signed banner URL',
+  })
+  @ApiResponse({ status: 404, description: 'Banner not found' })
+  async getBannerUrl(@Param('id') brandId: string): Promise<{ url: string }> {
+    return this.brandsService.getBannerUrl(brandId);
+  }
 
   @Post()
   @UseGuards(AuthGuard)
@@ -158,11 +201,23 @@ export class BrandsController {
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete brand (soft delete)' })
+  @ApiOperation({ summary: 'Delete brand (SYSTEM_ADMIN only)' })
   @ApiResponse({ status: 204, description: 'Brand deleted' })
   @ApiResponse({ status: 404, description: 'Brand not found' })
-  async remove(@Param('id') id: string): Promise<void> {
-    return this.brandsService.remove(id);
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - SYSTEM_ADMIN role required',
+  })
+  async remove(
+    @Param('id') id: string,
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<void> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    return this.brandsService.remove(id, keycloakId);
   }
 
   @Post(':id/documents')
@@ -210,6 +265,7 @@ export class BrandsController {
   async uploadDocument(
     @Param('id') brandId: string,
     @Body() uploadDto: UploadDocumentDto,
+    @Request() req: { user?: { sub?: string } },
     @UploadedFile()
     file:
       | {
@@ -220,6 +276,11 @@ export class BrandsController {
         }
       | undefined,
   ): Promise<DocumentResponseDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
     if (!file) {
       throw new BadRequestException('File is required');
     }
@@ -231,6 +292,7 @@ export class BrandsController {
       brandId,
       uploadDto.type,
       uploadDto.name,
+      keycloakId,
       file,
     );
   }
@@ -318,7 +380,9 @@ export class BrandsController {
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Verify and activate brand (SYSTEM_ADMIN only)' })
+  @ApiOperation({
+    summary: 'Verify and activate brand (SYSTEM_ADMIN or BRAND_ADMIN)',
+  })
   @ApiResponse({
     status: 201,
     description: 'Brand verified and activated successfully',
@@ -330,7 +394,7 @@ export class BrandsController {
   })
   @ApiResponse({
     status: 403,
-    description: 'Forbidden - SYSTEM_ADMIN role required',
+    description: 'Forbidden - SYSTEM_ADMIN or BRAND_ADMIN role required',
   })
   @ApiResponse({ status: 404, description: 'Brand not found' })
   async verifyBrand(
@@ -871,5 +935,69 @@ export class BrandsController {
     res.setHeader('Content-Length', buffer.length.toString());
 
     res.send(buffer);
+  }
+
+  @Get('my/analytics/orders')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get brand orders analytics (BRAND_ADMIN only)',
+    description:
+      "Returns orders analytics for the current BRAND_ADMIN's brand including total orders, revenue, trends, etc.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Brand orders analytics',
+    type: BrandOrdersAnalyticsDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - BRAND_ADMIN role required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Brand not found or BRAND_ADMIN not assigned to brand',
+  })
+  async getMyBrandOrdersAnalytics(
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<BrandOrdersAnalyticsDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    return this.brandsService.getBrandOrdersAnalytics(keycloakId);
+  }
+
+  @Get('my/analytics/popular-items')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get brand popular items analytics (BRAND_ADMIN only)',
+    description:
+      "Returns popular items analytics for the current BRAND_ADMIN's brand including most ordered items and cafe performance.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Brand popular items analytics',
+    type: BrandPopularItemsDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - BRAND_ADMIN role required',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Brand not found or BRAND_ADMIN not assigned to brand',
+  })
+  async getMyBrandPopularItemsAnalytics(
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<BrandPopularItemsDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    return this.brandsService.getBrandPopularItemsAnalytics(keycloakId);
   }
 }

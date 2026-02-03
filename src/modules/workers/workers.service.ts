@@ -364,7 +364,12 @@ export class WorkersService {
   ): Promise<WorkerListResponseDto> {
     // Check if user is SYSTEM_ADMIN
     const worker = await this.findByKeycloakId(keycloakId);
-    if (!worker || worker.role !== WorkerRole.SYSTEM_ADMIN) {
+    if (!worker) {
+      throw new ForbiddenException('Worker not found');
+    }
+
+    // Only SYSTEM_ADMIN can access this endpoint
+    if (worker.role !== WorkerRole.SYSTEM_ADMIN) {
       throw new ForbiddenException('Only SYSTEM_ADMIN can view all workers');
     }
 
@@ -372,12 +377,16 @@ export class WorkersService {
     const limit = query.limit || 20;
     const skip = (page - 1) * limit;
 
-    const where: Prisma.WorkerAccountWhereInput = {
-      deletedAt: null,
+    let where: Prisma.WorkerAccountWhereInput = {
+      ...(query.includeDeleted ? {} : { deletedAt: null }),
       ...(query.role && { role: query.role }),
-      ...(query.brandId && { brandId: query.brandId }),
       ...(query.cafeId && { cafeId: query.cafeId }),
     };
+
+    // If SYSTEM_ADMIN specifies brandId, filter by it
+    if (query.brandId) {
+      where = { ...where, brandId: query.brandId };
+    }
 
     const [items, total] = await Promise.all([
       this.prisma.workerAccount.findMany({
@@ -399,6 +408,7 @@ export class WorkersService {
         brandId: w.brandId ?? undefined,
         cafeId: w.cafeId ?? undefined,
         createdAt: w.createdAt,
+        deletedAt: w.deletedAt ?? null,
       })),
       total,
       page,
@@ -483,9 +493,19 @@ export class WorkersService {
       throw new ForbiddenException('Only SYSTEM_ADMIN can delete workers');
     }
 
+    // Prevent deleting yourself
+    if (requester.id === workerId) {
+      throw new ForbiddenException('SYSTEM_ADMIN cannot delete themselves');
+    }
+
     const worker = await this.findById(workerId);
     if (!worker) {
       throw new NotFoundException('Worker account not found');
+    }
+
+    // Prevent deleting any SYSTEM_ADMIN
+    if (worker.role === WorkerRole.SYSTEM_ADMIN) {
+      throw new ForbiddenException('SYSTEM_ADMIN accounts cannot be deleted');
     }
 
     // Delete from Keycloak

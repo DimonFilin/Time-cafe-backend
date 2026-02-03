@@ -26,6 +26,18 @@ export class BrandStatsDto {
   totalReviews: number;
 
   @ApiProperty({
+    example: 150,
+    description: 'Total number of orders',
+  })
+  totalOrders: number;
+
+  @ApiProperty({
+    example: 12500.5,
+    description: 'Total revenue',
+  })
+  totalRevenue: number;
+
+  @ApiProperty({
     example: { Минск: 5, Гомель: 3, Брест: 2 },
     description: 'Number of cafes by city',
   })

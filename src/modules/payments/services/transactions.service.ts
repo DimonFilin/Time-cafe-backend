@@ -10,7 +10,9 @@ import {
   TransactionType,
   TransactionStatus,
   OrderStatus,
+  Prisma,
 } from '@prisma/client';
+import { AdminTransactionListQueryDto } from '../dto/admin-transaction-list-query.dto';
 
 enum PaymentMode {
   GOOD = 'good', // Платеж проходит моментально
@@ -345,5 +347,157 @@ export class TransactionsService {
         `Failed to update order status for ${orderId}: ${error}`,
       );
     }
+  }
+
+  /**
+   * Get all transactions for SYSTEM_ADMIN
+   */
+  async findAllAdmin(query: AdminTransactionListQueryDto) {
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.TransactionWhereInput = {};
+
+    if (query.userId) {
+      where.userId = query.userId;
+    }
+
+    if (query.type) {
+      where.type = query.type;
+    }
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    if (query.orderId) {
+      where.orderId = query.orderId;
+    }
+
+    const [transactions, total] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip,
+        include: {
+          card: {
+            select: {
+              id: true,
+              last4Digits: true,
+              cardType: true,
+            },
+          },
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      }),
+      this.prisma.transaction.count({ where }),
+    ]);
+
+    return {
+      items: transactions,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+   * Get transaction by ID for SYSTEM_ADMIN
+   */
+  async findOneAdmin(transactionId: string): Promise<Transaction | null> {
+    return this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+      include: {
+        card: {
+          select: {
+            id: true,
+            last4Digits: true,
+            cardType: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            status: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Create refund for SYSTEM_ADMIN (can refund any transaction)
+   */
+  async createRefundAdmin(
+    originalTransactionId: string,
+    amount?: number,
+    description?: string,
+  ): Promise<Transaction> {
+    const originalTransaction = await this.prisma.transaction.findFirst({
+      where: {
+        id: originalTransactionId,
+        type: TransactionType.PAYMENT,
+        status: TransactionStatus.COMPLETED,
+      },
+    });
+
+    if (!originalTransaction) {
+      throw new NotFoundException('Original transaction not found');
+    }
+
+    const originalAmount = Number(originalTransaction.amount);
+    const refundAmount = amount ? Number(amount) : originalAmount;
+
+    if (refundAmount <= 0) {
+      throw new BadRequestException('Refund amount must be greater than 0');
+    }
+
+    if (refundAmount > originalAmount) {
+      throw new BadRequestException(
+        'Refund amount cannot exceed original payment amount',
+      );
+    }
+
+    const refund = await this.prisma.transaction.create({
+      data: {
+        userId: originalTransaction.userId,
+        type: TransactionType.REFUND,
+        status: TransactionStatus.COMPLETED,
+        amount: refundAmount,
+        currency: originalTransaction.currency,
+        orderId: originalTransaction.orderId,
+        cardId: originalTransaction.cardId,
+        description:
+          description ||
+          `Refund for transaction ${originalTransaction.id.substring(0, 8)}`,
+        provider: originalTransaction.provider,
+        providerTransactionId: `re_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+      },
+    });
+
+    this.logger.log(
+      `Refund created: ${refund.id} for transaction ${originalTransactionId}`,
+    );
+
+    return refund;
   }
 }

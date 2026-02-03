@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { WorkersService } from './workers.service';
 import {
@@ -11,7 +11,12 @@ import { UsersModule } from '../users/users.module';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [KeycloakModule, HttpModule, UsersModule, AuthModule],
+  imports: [
+    KeycloakModule,
+    HttpModule,
+    forwardRef(() => UsersModule),
+    forwardRef(() => AuthModule),
+  ],
   controllers: [WorkersController, AdminWorkersController],
   providers: [WorkersService, KeycloakService],
   exports: [WorkersService],

@@ -8,8 +8,10 @@ import {
   HttpCode,
   HttpStatus,
   Request,
+  Response,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Response as ExpressResponse } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -139,8 +141,24 @@ export class AuthController {
     status: 401,
     description: 'Invalid or expired lookup token',
   })
-  async loginSelect(@Body() dto: LoginSelectDto): Promise<AuthResponseDto> {
-    return this.authService.loginSelect(dto);
+  async loginSelect(
+    @Body() dto: LoginSelectDto,
+    @Response({ passthrough: true }) res: ExpressResponse,
+  ): Promise<AuthResponseDto> {
+    const result = await this.authService.loginSelect(dto);
+
+    // Store selected accountId in httpOnly cookie
+    // Cookie expires when access token expires
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.cookie('tc_account_id', dto.accountId, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: result.expiresIn * 1000, // Convert seconds to milliseconds
+    });
+
+    return result;
   }
 
   @Get('me')
@@ -164,13 +182,28 @@ export class AuthController {
     description: 'User not found',
   })
   async getProfile(
-    @Request() req: { user?: { sub?: string } },
+    @Request()
+    req: {
+      user?: { sub?: string };
+      cookies?: { tc_account_id?: string };
+      headers?: { cookie?: string };
+    },
   ): Promise<MeResponseDto> {
     const keycloakId = req.user?.sub;
     if (!keycloakId) {
       throw new UnauthorizedException('User not authenticated');
     }
-    return this.authService.getMe(keycloakId);
+
+    // Get selected accountId from cookie (if exists)
+    const selectedAccountId =
+      req.cookies?.tc_account_id ??
+      req.headers?.cookie
+        ?.split(';')
+        .map((p) => p.trim())
+        .find((p) => p.startsWith('tc_account_id='))
+        ?.split('=')[1];
+
+    return this.authService.getMe(keycloakId, selectedAccountId);
   }
 
   @Patch('me')
