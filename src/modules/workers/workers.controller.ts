@@ -22,9 +22,16 @@ import {
 } from '@nestjs/swagger';
 import { UseGuards } from '@nestjs/common';
 import { AuthGuard } from 'nest-keycloak-connect';
-import { WorkerRole } from '@prisma/client';
+import {
+  WorkerRole,
+  ActivityAction,
+  ActivityCategory,
+  WorkerAccount,
+} from '@prisma/client';
 import { WorkersService } from './workers.service';
 import { KeycloakService } from '../auth/services/keycloak.service';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { LogActivity } from '../../common/decorators/log-activity.decorator';
 import { RegisterWorkerDto } from './dto/register-worker.dto';
 import { UpdateWorkerDto } from './dto/update-worker.dto';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto';
@@ -38,6 +45,7 @@ export class WorkersController {
   constructor(
     private readonly workersService: WorkersService,
     private readonly keycloakService: KeycloakService,
+    private readonly activityLogsService: ActivityLogsService,
   ) {}
 
   @Post()
@@ -74,6 +82,41 @@ export class WorkersController {
     status: 400,
     description: 'Validation error',
   })
+  @LogActivity(ActivityAction.CREATE, ActivityCategory.DATA, {
+    resourceType: 'WORKER_ACCOUNT',
+    getResourceId: (result: unknown) => {
+      if (
+        typeof result === 'object' &&
+        result !== null &&
+        'user' in result &&
+        typeof result.user === 'object' &&
+        result.user !== null &&
+        'id' in result.user &&
+        typeof result.user.id === 'string'
+      ) {
+        return result.user.id;
+      }
+      return undefined;
+    },
+    getDetails: (result: unknown) => {
+      if (
+        typeof result === 'object' &&
+        result !== null &&
+        'user' in result &&
+        typeof result.user === 'object' &&
+        result.user !== null
+      ) {
+        const user = result.user as Record<string, unknown>;
+        return {
+          workerRole: user.role,
+          workerEmail: user.email,
+          brandId: user.brandId,
+          cafeId: user.cafeId,
+        };
+      }
+      return {};
+    },
+  })
   async register(
     @Body() dto: RegisterWorkerDto,
     @Request() req: { user?: { sub?: string } },
@@ -106,14 +149,45 @@ export class WorkersController {
     description: 'Worker account not found',
   })
   async getProfile(
-    @Request() req: { user?: { sub?: string } },
+    @Request()
+    req: {
+      user?: { sub?: string };
+      cookies?: { tc_account_id?: string };
+      headers?: { cookie?: string };
+    },
   ): Promise<WorkerProfileDto> {
     const keycloakId = req.user?.sub;
+
     if (!keycloakId) {
       throw new UnauthorizedException('User not authenticated');
     }
 
-    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    // Get selected accountId from cookie (if exists)
+    const selectedAccountId =
+      req.cookies?.tc_account_id ??
+      req.headers?.cookie
+        ?.split(';')
+        .map((p) => p.trim())
+        .find((p) => p.startsWith('tc_account_id='))
+        ?.split('=')[1];
+
+    let worker: WorkerAccount | null = null;
+
+    // If accountId is provided, try to find that specific worker
+    if (selectedAccountId) {
+      worker = await this.workersService.findById(selectedAccountId);
+
+      // Verify the worker belongs to this keycloakId
+      if (worker && worker.keycloakId !== keycloakId) {
+        worker = null;
+      }
+    }
+
+    // Fallback to first worker account if no specific account selected
+    if (!worker) {
+      worker = await this.workersService.findByKeycloakId(keycloakId);
+    }
+
     if (!worker) {
       throw new NotFoundException('Worker account not found');
     }

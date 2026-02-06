@@ -772,14 +772,27 @@ export class BrandsController {
     description: 'Brand not found or BRAND_ADMIN not assigned to brand',
   })
   async getMyBrandCafes(
-    @Request() req: { user?: { sub?: string } },
+    @Request()
+    req: {
+      user?: { sub?: string };
+      cookies?: { tc_account_id?: string };
+      headers?: { cookie?: string };
+    },
   ): Promise<CafeResponseDto[]> {
     const keycloakId = req.user?.sub;
     if (!keycloakId) {
       throw new BadRequestException('User ID not found in token');
     }
 
-    return this.brandsService.getMyBrandCafes(keycloakId);
+    const accountId =
+      req.cookies?.tc_account_id ??
+      req.headers?.cookie
+        ?.split(';')
+        .map((p) => p.trim())
+        .find((p) => p.startsWith('tc_account_id='))
+        ?.split('=')[1];
+
+    return this.brandsService.getMyBrandCafes(keycloakId, accountId);
   }
 
   @Get('my/stats')
@@ -804,14 +817,28 @@ export class BrandsController {
     description: 'Brand not found or BRAND_ADMIN not assigned to brand',
   })
   async getMyBrandStats(
-    @Request() req: { user?: { sub?: string } },
+    @Request()
+    req: {
+      user?: { sub?: string };
+      cookies?: { tc_account_id?: string };
+      headers?: { cookie?: string };
+    },
   ): Promise<BrandStatsDto> {
     const keycloakId = req.user?.sub;
     if (!keycloakId) {
       throw new BadRequestException('User ID not found in token');
     }
 
-    return this.brandsService.getMyBrandStats(keycloakId);
+    // Get selected accountId from cookie (if exists)
+    const accountId =
+      req.cookies?.tc_account_id ??
+      req.headers?.cookie
+        ?.split(';')
+        .map((p) => p.trim())
+        .find((p) => p.startsWith('tc_account_id='))
+        ?.split('=')[1];
+
+    return this.brandsService.getMyBrandStats(keycloakId, accountId);
   }
 
   @Get('my/reports')
@@ -836,14 +863,27 @@ export class BrandsController {
     description: 'Brand not found or BRAND_ADMIN not assigned to brand',
   })
   async getMyBrandReports(
-    @Request() req: { user?: { sub?: string } },
+    @Request()
+    req: {
+      user?: { sub?: string };
+      cookies?: { tc_account_id?: string };
+      headers?: { cookie?: string };
+    },
   ): Promise<BrandReportDto> {
     const keycloakId = req.user?.sub;
     if (!keycloakId) {
       throw new BadRequestException('User ID not found in token');
     }
 
-    return this.brandsService.getMyBrandReports(keycloakId);
+    const accountId =
+      req.cookies?.tc_account_id ??
+      req.headers?.cookie
+        ?.split(';')
+        .map((p) => p.trim())
+        .find((p) => p.startsWith('tc_account_id='))
+        ?.split('=')[1];
+
+    return this.brandsService.getMyBrandReports(keycloakId, accountId);
   }
 
   @Get('my/reports/export/:format')
@@ -887,13 +927,26 @@ export class BrandsController {
   })
   async exportMyBrandReport(
     @Param('format') format: string,
-    @Request() req: { user?: { sub?: string } },
+    @Request()
+    req: {
+      user?: { sub?: string };
+      cookies?: { tc_account_id?: string };
+      headers?: { cookie?: string };
+    },
     @Res() res: Response,
   ): Promise<void> {
     const keycloakId = req.user?.sub;
     if (!keycloakId) {
       throw new BadRequestException('User ID not found in token');
     }
+
+    const accountId =
+      req.cookies?.tc_account_id ??
+      req.headers?.cookie
+        ?.split(';')
+        .map((p) => p.trim())
+        .find((p) => p.startsWith('tc_account_id='))
+        ?.split('=')[1];
 
     // Validate format
     const exportFormat = format.toLowerCase() as ExportFormat;
@@ -904,7 +957,10 @@ export class BrandsController {
     }
 
     // Get report data
-    const report = await this.brandsService.getMyBrandReports(keycloakId);
+    const report = await this.brandsService.getMyBrandReports(
+      keycloakId,
+      accountId,
+    );
 
     // Export to requested format
     let buffer: Buffer;
@@ -959,14 +1015,27 @@ export class BrandsController {
     description: 'Brand not found or BRAND_ADMIN not assigned to brand',
   })
   async getMyBrandOrdersAnalytics(
-    @Request() req: { user?: { sub?: string } },
+    @Request()
+    req: {
+      user?: { sub?: string };
+      cookies?: { tc_account_id?: string };
+      headers?: { cookie?: string };
+    },
   ): Promise<BrandOrdersAnalyticsDto> {
     const keycloakId = req.user?.sub;
     if (!keycloakId) {
       throw new BadRequestException('User ID not found in token');
     }
 
-    return this.brandsService.getBrandOrdersAnalytics(keycloakId);
+    const accountId =
+      req.cookies?.tc_account_id ??
+      req.headers?.cookie
+        ?.split(';')
+        .map((p) => p.trim())
+        .find((p) => p.startsWith('tc_account_id='))
+        ?.split('=')[1];
+
+    return this.brandsService.getBrandOrdersAnalytics(keycloakId, accountId);
   }
 
   @Get('my/analytics/popular-items')
@@ -991,13 +1060,29 @@ export class BrandsController {
     description: 'Brand not found or BRAND_ADMIN not assigned to brand',
   })
   async getMyBrandPopularItemsAnalytics(
-    @Request() req: { user?: { sub?: string } },
+    @Request()
+    req: {
+      user?: { sub?: string };
+      cookies?: { tc_account_id?: string };
+      headers?: { cookie?: string };
+    },
   ): Promise<BrandPopularItemsDto> {
     const keycloakId = req.user?.sub;
     if (!keycloakId) {
       throw new BadRequestException('User ID not found in token');
     }
 
-    return this.brandsService.getBrandPopularItemsAnalytics(keycloakId);
+    const accountId =
+      req.cookies?.tc_account_id ??
+      req.headers?.cookie
+        ?.split(';')
+        .map((p) => p.trim())
+        .find((p) => p.startsWith('tc_account_id='))
+        ?.split('=')[1];
+
+    return this.brandsService.getBrandPopularItemsAnalytics(
+      keycloakId,
+      accountId,
+    );
   }
 }

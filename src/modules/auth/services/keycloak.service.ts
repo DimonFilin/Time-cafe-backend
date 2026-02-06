@@ -47,8 +47,11 @@ export class KeycloakService {
 
     try {
       let tokenParams: URLSearchParams;
+      let tokenUrl: string;
 
       if (this.adminUsername && this.adminPassword) {
+        // Use master realm with admin-cli for admin credentials
+        tokenUrl = `${this.keycloakUrl}/realms/master/protocol/openid-connect/token`;
         tokenParams = new URLSearchParams({
           client_id: 'admin-cli',
           grant_type: 'password',
@@ -56,6 +59,8 @@ export class KeycloakService {
           password: this.adminPassword,
         });
       } else {
+        // Use configured realm with client credentials
+        tokenUrl = `${this.keycloakUrl}/realms/${this.realm}/protocol/openid-connect/token`;
         tokenParams = new URLSearchParams({
           client_id: this.clientId,
           client_secret: this.clientSecret,
@@ -64,15 +69,11 @@ export class KeycloakService {
       }
 
       const response = await firstValueFrom(
-        this.httpService.post<TokenResponse>(
-          `${this.keycloakUrl}/realms/${this.realm}/protocol/openid-connect/token`,
-          tokenParams,
-          {
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
+        this.httpService.post<TokenResponse>(tokenUrl, tokenParams, {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
           },
-        ),
+        }),
       );
 
       this.adminToken = response.data.access_token;

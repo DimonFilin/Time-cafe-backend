@@ -1341,8 +1341,25 @@ export class BrandsService {
   /**
    * Get brand ID for BRAND_ADMIN
    */
-  private async getBrandAdminBrandId(keycloakId: string): Promise<string> {
-    const worker = await this.workersService.findByKeycloakId(keycloakId);
+  private async getBrandAdminBrandId(
+    keycloakId: string,
+    accountId?: string,
+  ): Promise<string> {
+    let worker: Awaited<
+      ReturnType<typeof this.workersService.findById>
+    > | null = null;
+
+    if (accountId) {
+      worker = await this.workersService.findById(accountId);
+      if (worker && worker.keycloakId !== keycloakId) {
+        throw new ForbiddenException(
+          'Worker account does not belong to this user',
+        );
+      }
+    } else {
+      worker = await this.workersService.findByKeycloakId(keycloakId);
+    }
+
     if (!worker) {
       throw new ForbiddenException('Worker account not found');
     }
@@ -1361,8 +1378,11 @@ export class BrandsService {
   /**
    * Get cafes for BRAND_ADMIN's brand
    */
-  async getMyBrandCafes(keycloakId: string): Promise<CafeResponseDto[]> {
-    const brandId = await this.getBrandAdminBrandId(keycloakId);
+  async getMyBrandCafes(
+    keycloakId: string,
+    accountId?: string,
+  ): Promise<CafeResponseDto[]> {
+    const brandId = await this.getBrandAdminBrandId(keycloakId, accountId);
 
     const cafes = await this.prisma.cafe.findMany({
       where: {
@@ -1410,8 +1430,11 @@ export class BrandsService {
   /**
    * Get brand statistics for BRAND_ADMIN
    */
-  async getMyBrandStats(keycloakId: string): Promise<BrandStatsDto> {
-    const brandId = await this.getBrandAdminBrandId(keycloakId);
+  async getMyBrandStats(
+    keycloakId: string,
+    accountId?: string,
+  ): Promise<BrandStatsDto> {
+    const brandId = await this.getBrandAdminBrandId(keycloakId, accountId);
 
     // Get cafes data
     const cafes = await this.prisma.cafe.findMany({
@@ -1484,8 +1507,11 @@ export class BrandsService {
   /**
    * Get brand reports for BRAND_ADMIN
    */
-  async getMyBrandReports(keycloakId: string): Promise<BrandReportDto> {
-    const brandId = await this.getBrandAdminBrandId(keycloakId);
+  async getMyBrandReports(
+    keycloakId: string,
+    accountId?: string,
+  ): Promise<BrandReportDto> {
+    const brandId = await this.getBrandAdminBrandId(keycloakId, accountId);
 
     const brand = await this.prisma.brand.findUnique({
       where: { id: brandId },
@@ -1551,8 +1577,9 @@ export class BrandsService {
    */
   async getBrandOrdersAnalytics(
     keycloakId: string,
+    accountId?: string,
   ): Promise<BrandOrdersAnalyticsDto> {
-    const brandId = await this.getBrandAdminBrandId(keycloakId);
+    const brandId = await this.getBrandAdminBrandId(keycloakId, accountId);
 
     // Get cafes for the brand
     const cafes = await this.prisma.cafe.findMany({
@@ -1674,8 +1701,9 @@ export class BrandsService {
    */
   async getBrandPopularItemsAnalytics(
     keycloakId: string,
+    accountId?: string,
   ): Promise<BrandPopularItemsDto> {
-    const brandId = await this.getBrandAdminBrandId(keycloakId);
+    const brandId = await this.getBrandAdminBrandId(keycloakId, accountId);
 
     // Get cafes for the brand
     const cafes = await this.prisma.cafe.findMany({

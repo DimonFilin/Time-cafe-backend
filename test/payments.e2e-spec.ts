@@ -138,6 +138,17 @@ describe('Payments Endpoints (e2e)', () => {
           ],
         },
       });
+      await prisma.review.deleteMany({
+        where: {
+          user: {
+            OR: [
+              { email: { contains: '@example.com' } },
+              { email: { contains: 'test-' } },
+              { email: { contains: '@test.com' } },
+            ],
+          },
+        },
+      });
       await prisma.user.deleteMany({
         where: {
           OR: [

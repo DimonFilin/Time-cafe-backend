@@ -102,6 +102,20 @@ describe('Cafes Endpoints (e2e)', () => {
         ],
       },
     });
+    await prisma.review.deleteMany({
+      where: {
+        user: {
+          OR: [
+            { email: { contains: '@test.com' } },
+            { email: { contains: 'test-' } },
+            { email: { contains: '@example.com' } },
+            { email: { contains: 'systemadmin-' } },
+            { email: { contains: 'user-' } },
+            { email: { contains: '-test-' } },
+          ],
+        },
+      },
+    });
     await prisma.user.deleteMany({
       where: {
         OR: [

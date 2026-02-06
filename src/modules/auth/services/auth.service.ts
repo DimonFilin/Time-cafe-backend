@@ -17,7 +17,13 @@ import { LoginSelectDto } from '../dto/login-select.dto';
 import { LoginLookupResponseDto } from '../dto/login-lookup-response.dto';
 import { AccountInfoDto } from '../dto/account-info.dto';
 import { MeResponseDto } from '../dto/me-response.dto';
-import { WorkerRole } from '@prisma/client';
+import {
+  WorkerRole,
+  ActivityAction,
+  ActivityCategory,
+  LogSeverity,
+} from '@prisma/client';
+import { ActivityLogsService } from '../../activity-logs/activity-logs.service';
 
 interface TokenResponse {
   access_token: string;
@@ -34,6 +40,7 @@ export class AuthService {
     private readonly keycloakService: KeycloakService,
     private readonly usersService: UsersService,
     private readonly prisma: PrismaService,
+    private readonly activityLogsService: ActivityLogsService,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResponseDto> {
@@ -412,6 +419,26 @@ export class AuthService {
 
       // If we have a worker account, return worker profile
       if (workerAccount) {
+        // Логируем успешный логин работника
+        await this.activityLogsService.log({
+          workerId: workerAccount.id,
+          workerEmail: workerAccount.email,
+          workerRole: workerAccount.role,
+          brandId: workerAccount.brandId || undefined,
+          cafeId: workerAccount.cafeId || undefined,
+          action: ActivityAction.LOGIN,
+          category: ActivityCategory.AUTH,
+          severity: LogSeverity.INFO,
+          resourceType: 'WORKER_ACCOUNT',
+          resourceId: workerAccount.id,
+          details: {
+            loginMethod: 'select',
+            role: workerAccount.role,
+            brandName: workerAccount.brand?.name,
+            cafeName: workerAccount.cafe?.name,
+          },
+        });
+
         return {
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,

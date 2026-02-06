@@ -46,6 +46,57 @@ enum TransactionStatus {
   CANCELLED // Отменена
 }
 
+enum ActivityAction {
+  // Auth
+  LOGIN
+  LOGOUT
+  PASSWORD_CHANGE
+  TOKEN_REFRESH
+  
+  // Data operations
+  CREATE
+  UPDATE
+  DELETE
+  BULK_UPDATE
+  BULK_DELETE
+  
+  // Views
+  VIEW_LIST
+  VIEW_DETAIL
+  VIEW_REPORT
+  EXPORT_DATA
+  
+  // Navigation
+  PAGE_VIEW
+  MODAL_OPEN
+  MODAL_CLOSE
+  TAB_SWITCH
+  
+  // Config
+  UPDATE_SETTINGS
+  UPDATE_PERMISSIONS
+  
+  // Special
+  FILE_UPLOAD
+  FILE_DELETE
+  PAYMENT_PROCESS
+}
+
+enum ActivityCategory {
+  AUTH
+  DATA
+  VIEW
+  CONFIG
+  FINANCIAL
+  SECURITY
+}
+
+enum LogSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
 enum BrandStatus {
   PENDING // Ожидает проверки
   ACTIVE // Активен
@@ -76,6 +127,8 @@ model WorkerAccount {
   deletedAt  DateTime?
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
+
+  activityLogs ActivityLog[]
 
   @@map("worker_accounts")
 }
@@ -145,6 +198,7 @@ model Brand {
   workerAccounts WorkerAccount[]
   legalDocuments BrandDocument[]
   apiKeys        BrandApiKey[]
+  activityLogs   ActivityLog[]
 
   @@map("brands")
 }
@@ -186,6 +240,7 @@ model Cafe {
   orders         Order[]
   reviews        Review[]
   appointments   Appointment[]
+  activityLogs   ActivityLog[]
 
   @@map("cafes")
 }
@@ -420,4 +475,53 @@ model SystemSettings {
   createdAt DateTime @default(now())
 
   @@map("system_settings")
+}
+
+model ActivityLog {
+  id String @id @default(uuid())
+
+  // Actor (кто)
+  workerId    String
+  worker      WorkerAccount @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  workerEmail String // Денормализация для быстрого поиска
+  workerRole  WorkerRole
+
+  // Context (где)
+  brandId String?
+  brand   Brand?  @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  cafeId  String?
+  cafe    Cafe?   @relation(fields: [cafeId], references: [id], onDelete: SetNull)
+
+  // Action (что)
+  action   ActivityAction
+  category ActivityCategory
+  severity LogSeverity      @default(INFO)
+
+  // Resource (над чем)
+  resourceType String // "ORDER", "USER", "CAFE", "BRAND", "WORKER"
+  resourceId   String?
+
+  // Details (как и зачем)
+  details  Json? // { oldValue, newValue, reason, etc }
+  metadata Json? // Дополнительные данные
+
+  // Technical
+  ipAddress  String?
+  userAgent  String?
+  endpoint   String? // API endpoint
+  method     String? // HTTP method
+  statusCode Int? // Response status
+  duration   Int? // Request duration in ms
+
+  // Timestamps
+  createdAt DateTime @default(now())
+
+  @@index([workerId, createdAt(sort: Desc)])
+  @@index([brandId, createdAt(sort: Desc)])
+  @@index([cafeId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@index([category, createdAt(sort: Desc)])
+  @@index([severity, createdAt(sort: Desc)])
+  @@index([resourceType, resourceId])
+  @@map("activity_logs")
 }

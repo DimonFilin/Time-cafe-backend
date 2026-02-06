@@ -18,6 +18,7 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
 import { RegionsModule } from './modules/regions/regions.module';
+import { ActivityLogsModule } from './modules/activity-logs/activity-logs.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { RegionsModule } from './modules/regions/regions.module';
     ReviewsModule,
     AppointmentsModule,
     RegionsModule,
+    ActivityLogsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

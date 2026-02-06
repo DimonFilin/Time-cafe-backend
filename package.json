@@ -29,6 +29,14 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:deploy": "prisma migrate deploy",
+    "seed": "ts-node scripts/seed-database.ts",
+    "seed:check": "ts-node scripts/check-data.ts",
+    "seed:check-brand": "ts-node scripts/check-brand.ts",
+    "seed:reset-passwords": "ts-node scripts/reset-password.ts",
+    "seed:clean-duplicates": "ts-node scripts/clean-duplicates.ts",
+    "seed:fix-brand-admin": "ts-node scripts/fix-brand-admin.ts",
+    "seed:reset-password": "ts-node scripts/reset-user-password.ts",
+    "seed:clear": "ts-node scripts/clear-database.ts",
     "prepare": "husky"
   },
   "dependencies": {
