@@ -166,7 +166,24 @@ export async function cleanupTestData(prisma: PrismaService) {
       },
     });
 
-    // Clean cafes FIRST (references brands and regions)
+    // Clean worker accounts BEFORE brands/cafes.
+    // WorkerAccount has FK to Brand/Cafe (even though fields are optional), so deleting brands/cafes first
+    // can intermittently fail depending on leftover rows from previous runs.
+    await prisma.workerAccount.deleteMany({
+      where: {
+        OR: [
+          { email: { contains: '@test.com' } },
+          { email: { contains: 'test-' } },
+          { email: { contains: '@example.com' } },
+          { email: { contains: 'systemadmin-' } },
+          { email: { contains: 'user-' } },
+          { email: { contains: '-test-' } },
+          { keycloakId: { contains: 'test-' } },
+        ],
+      },
+    });
+
+    // Clean cafes AFTER worker accounts (cafes are referenced by worker accounts)
     await prisma.cafe.deleteMany({
       where: {
         OR: [
@@ -235,21 +252,6 @@ export async function cleanupTestData(prisma: PrismaService) {
           { email: { contains: 'systemadmin-' } },
           { email: { contains: 'user-' } },
           { email: { contains: '-test-' } },
-        ],
-      },
-    });
-
-    // Clean worker accounts - hard delete to avoid foreign key issues
-    await prisma.workerAccount.deleteMany({
-      where: {
-        OR: [
-          { email: { contains: '@test.com' } },
-          { email: { contains: 'test-' } },
-          { email: { contains: '@example.com' } },
-          { email: { contains: 'systemadmin-' } },
-          { email: { contains: 'user-' } },
-          { email: { contains: '-test-' } },
-          { keycloakId: { contains: 'test-' } },
         ],
       },
     });

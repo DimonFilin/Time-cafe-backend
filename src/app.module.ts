@@ -19,6 +19,9 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
 import { RegionsModule } from './modules/regions/regions.module';
 import { ActivityLogsModule } from './modules/activity-logs/activity-logs.module';
+import { CafeWorkerModule } from './modules/cafe-worker/cafe-worker.module';
+import { TasksModule } from './modules/tasks/tasks.module';
+import { CafeAdminModule } from './modules/cafe-admin/cafe-admin.module';
 
 @Module({
   imports: [
@@ -40,6 +43,9 @@ import { ActivityLogsModule } from './modules/activity-logs/activity-logs.module
     AppointmentsModule,
     RegionsModule,
     ActivityLogsModule,
+    CafeWorkerModule,
+    TasksModule,
+    CafeAdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],

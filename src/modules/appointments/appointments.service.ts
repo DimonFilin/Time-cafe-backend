@@ -510,6 +510,7 @@ export class AppointmentsService {
               firstName: true,
               lastName: true,
               phone: true,
+              email: true,
             },
           },
         },
@@ -551,6 +552,7 @@ export class AppointmentsService {
             firstName: true,
             lastName: true,
             phone: true,
+            email: true,
           },
         },
       },
@@ -617,6 +619,88 @@ export class AppointmentsService {
   }
 
   /**
+   * Check-in appointment (for cafe workers)
+   */
+  async checkInAppointment(
+    appointmentId: string,
+    keycloakId: string,
+  ): Promise<AppointmentResponseDto> {
+    const appointment = await this.prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: {
+        cafe: { select: { name: true } },
+      },
+    });
+
+    if (!appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    await this.checkCafeAccess(appointment.cafeId, keycloakId);
+
+    if (appointment.status !== 'confirmed') {
+      throw new BadRequestException(
+        'Only confirmed appointments can be checked in',
+      );
+    }
+
+    const updatedAppointment = await this.prisma.appointment.update({
+      where: { id: appointmentId },
+      data: { status: 'completed' },
+      include: {
+        cafe: { select: { name: true } },
+      },
+    });
+
+    this.logger.log(`Appointment checked in: ${appointmentId}`);
+    return this.mapToResponseDto(updatedAppointment);
+  }
+
+  /**
+   * Cancel appointment (for cafe workers)
+   */
+  async cancelCafeAppointment(
+    appointmentId: string,
+    keycloakId: string,
+    cancelDto?: CancelAppointmentDto,
+  ): Promise<AppointmentResponseDto> {
+    const appointment = await this.prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: {
+        cafe: { select: { name: true } },
+      },
+    });
+
+    if (!appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    await this.checkCafeAccess(appointment.cafeId, keycloakId);
+
+    if (!['pending', 'confirmed'].includes(appointment.status)) {
+      throw new BadRequestException(
+        'Only pending or confirmed appointments can be cancelled',
+      );
+    }
+
+    const updatedAppointment = await this.prisma.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        status: 'cancelled',
+        notes: cancelDto?.reason
+          ? `Cancelled: ${cancelDto.reason}`
+          : 'Cancelled by cafe worker',
+      },
+      include: {
+        cafe: { select: { name: true } },
+      },
+    });
+
+    this.logger.log(`Appointment cancelled by cafe: ${appointmentId}`);
+    return this.mapToResponseDto(updatedAppointment);
+  }
+
+  /**
    * Check if user has access to cafe appointments (for workers)
    */
   private async checkCafeAccess(
@@ -664,6 +748,12 @@ export class AppointmentsService {
     const app = appointment as {
       id: string;
       userId: string;
+      user?: {
+        firstName?: string;
+        lastName?: string;
+        phone?: string | null;
+        email?: string | null;
+      };
       cafeId: string;
       cafe?: { name?: string };
       dateTime: Date;
@@ -682,6 +772,18 @@ export class AppointmentsService {
     return {
       id: app.id,
       userId: app.userId,
+      user:
+        app.user?.firstName ||
+        app.user?.lastName ||
+        app.user?.email ||
+        app.user?.phone
+          ? {
+              firstName: app.user?.firstName ?? '',
+              lastName: app.user?.lastName ?? '',
+              ...(app.user?.email ? { email: app.user.email } : {}),
+              ...(app.user?.phone ? { phone: app.user.phone } : {}),
+            }
+          : undefined,
       cafeId: app.cafeId,
       cafeName: app.cafe?.name,
       dateTime: app.dateTime,

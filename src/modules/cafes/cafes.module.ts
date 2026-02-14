@@ -5,12 +5,14 @@ import { CafesService } from './cafes.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { KeycloakModule } from '../auth/keycloak.module';
 import { WorkersModule } from '../workers/workers.module';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
     PrismaModule,
     KeycloakModule,
     WorkersModule,
+    StorageModule,
     HttpModule.register({
       timeout: 5000,
       maxRedirects: 5,

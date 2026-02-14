@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { WorkerRole } from '@prisma/client';
+import { WorkerRole, WorkerShiftStatus } from '@prisma/client';
 import { UserProfileDto } from './user-profile.dto';
 
 export class MeResponseDto extends UserProfileDto {
@@ -25,4 +25,12 @@ export class MeResponseDto extends UserProfileDto {
     nullable: true,
   })
   cafeId?: string | null;
+
+  @ApiProperty({
+    example: 'OFF_SHIFT',
+    enum: ['ON_SHIFT', 'OFF_SHIFT'],
+    description: 'Worker shift status (for WORKER and CAFE_ADMIN roles)',
+    required: false,
+  })
+  shiftStatus?: WorkerShiftStatus;
 }

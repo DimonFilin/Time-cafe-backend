@@ -10,6 +10,7 @@ import { KeycloakWebhookService } from './services/keycloak-webhook.service';
 import { UsersModule } from '../users/users.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
     forwardRef(() => UsersModule),
     PrismaModule,
     ActivityLogsModule,
+    StorageModule,
   ],
   controllers: [AuthController, AuthTestController, KeycloakWebhookController],
   providers: [KeycloakService, AuthService, KeycloakWebhookService],

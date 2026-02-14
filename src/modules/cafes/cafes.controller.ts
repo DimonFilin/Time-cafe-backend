@@ -127,6 +127,22 @@ export class CafesController {
     return this.cafesService.findOne(id);
   }
 
+  @Get(':id/photo-urls')
+  @Public()
+  @ApiOperation({ summary: 'Get signed URLs for cafe photos' })
+  async getCafePhotoUrls(
+    @Param('id') id: string,
+    @Request()
+    req: { headers?: { host?: string; 'x-forwarded-proto'?: string } } = {},
+  ): Promise<{ urls: string[] }> {
+    const urls = await this.cafesService.getSignedCafePhotoUrls({
+      cafeId: id,
+      requestHost: req.headers?.host,
+      requestProto: req.headers?.['x-forwarded-proto'],
+    });
+    return { urls };
+  }
+
   @Patch(':id')
   @UseGuards(AuthGuard)
   @ApiBearerAuth()

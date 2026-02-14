@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { loggerConfig } from './config/logger.config';
+import type { NextFunction, Request, Response } from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -12,6 +13,23 @@ async function bootstrap() {
   app.enableCors({
     origin: process.env.FRONTEND_URL || 'http://localhost:3000',
     credentials: true,
+  });
+
+  // Add raw body logging middleware BEFORE validation
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    if (
+      req.url.includes('/cafe-admin/tasks/templates') &&
+      req.method === 'POST'
+    ) {
+      console.log('[RAW REQUEST] URL:', req.url);
+      console.log('[RAW REQUEST] Method:', req.method);
+      console.log(
+        '[RAW REQUEST] Headers:',
+        JSON.stringify(req.headers, null, 2),
+      );
+      console.log('[RAW REQUEST] Body:', JSON.stringify(req.body, null, 2));
+    }
+    next();
   });
 
   app.useGlobalPipes(

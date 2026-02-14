@@ -30,6 +30,7 @@
     "prisma:studio": "prisma studio",
     "prisma:deploy": "prisma migrate deploy",
     "seed": "ts-node scripts/seed-database.ts",
+    "seed:tasks": "ts-node scripts/seed-tasks.ts",
     "seed:check": "ts-node scripts/check-data.ts",
     "seed:check-brand": "ts-node scripts/check-brand.ts",
     "seed:reset-passwords": "ts-node scripts/reset-password.ts",

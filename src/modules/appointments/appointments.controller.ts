@@ -268,4 +268,78 @@ export class AppointmentsController {
       keycloakId,
     );
   }
+
+  @Post('cafe/:appointmentId/checkin')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check-in appointment (CAFE_ADMIN/WORKER only)',
+    description:
+      'Mark confirmed appointment as completed (requires cafe worker permissions)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Appointment checked in successfully',
+    type: AppointmentResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'Bad request - invalid status' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - cafe worker permissions required',
+  })
+  @ApiResponse({ status: 404, description: 'Appointment not found' })
+  async checkInAppointment(
+    @Param('appointmentId') appointmentId: string,
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<AppointmentResponseDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    return this.appointmentsService.checkInAppointment(
+      appointmentId,
+      keycloakId,
+    );
+  }
+
+  @Post('cafe/:appointmentId/cancel')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Cancel appointment by cafe (CAFE_ADMIN/WORKER only)',
+    description:
+      'Cancel pending/confirmed appointment (requires cafe worker permissions)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Appointment cancelled successfully',
+    type: AppointmentResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'Bad request - invalid status' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - cafe worker permissions required',
+  })
+  @ApiResponse({ status: 404, description: 'Appointment not found' })
+  async cancelByCafe(
+    @Param('appointmentId') appointmentId: string,
+    @Body() cancelDto: CancelAppointmentDto,
+    @Request() req: { user?: { sub?: string } },
+  ): Promise<AppointmentResponseDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+
+    return this.appointmentsService.cancelCafeAppointment(
+      appointmentId,
+      keycloakId,
+      cancelDto,
+    );
+  }
 }

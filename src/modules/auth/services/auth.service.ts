@@ -24,6 +24,8 @@ import {
   LogSeverity,
 } from '@prisma/client';
 import { ActivityLogsService } from '../../activity-logs/activity-logs.service';
+import { StorageService } from '../../storage/storage.service';
+import { FileValidator } from '../../storage/utils/file-validator';
 
 interface TokenResponse {
   access_token: string;
@@ -41,6 +43,7 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly prisma: PrismaService,
     private readonly activityLogsService: ActivityLogsService,
+    private readonly storageService: StorageService,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResponseDto> {
@@ -510,6 +513,7 @@ export class AuthService {
           role: workerAccount.role,
           brandId: workerAccount.brandId ?? null,
           cafeId: workerAccount.cafeId ?? null,
+          shiftStatus: workerAccount.shiftStatus,
         };
       }
 
@@ -548,7 +552,18 @@ export class AuthService {
 
     // Single account users - return the only account
     if (workerAccounts.length === 1) {
-      const workerAccount = workerAccounts[0];
+      const workerAccount = await this.prisma.workerAccount.findUnique({
+        where: { id: workerAccounts[0].id },
+        include: {
+          brand: true,
+          cafe: true,
+        },
+      });
+
+      if (!workerAccount) {
+        throw new UnauthorizedException('Worker account not found');
+      }
+
       return {
         id: workerAccount.id,
         email: workerAccount.email,
@@ -561,6 +576,7 @@ export class AuthService {
         role: workerAccount.role,
         brandId: workerAccount.brandId ?? null,
         cafeId: workerAccount.cafeId ?? null,
+        shiftStatus: workerAccount.shiftStatus,
       };
     }
 
@@ -593,6 +609,97 @@ export class AuthService {
 
     const updated = await this.usersService.update(user.id, data);
     return this.mapToUserProfile(updated);
+  }
+
+  async uploadMyAvatar(
+    keycloakId: string,
+    file: {
+      buffer: Buffer;
+      mimetype: string;
+      size: number;
+      originalname?: string;
+    },
+  ): Promise<UserProfileDto> {
+    const user = await this.usersService.findByKeycloakId(keycloakId);
+    if (!user) throw new UnauthorizedException('User not found');
+
+    FileValidator.validateImage(file);
+
+    const original = (file.originalname || 'avatar').trim();
+    const safeName = original.replace(/[^\w.-]+/g, '-').replace(/-+/g, '-');
+    const fileName = `${Date.now()}-${safeName || 'avatar'}`;
+    const buckets = this.storageService.getBuckets();
+    const path = `${user.id}/avatar/${fileName}`;
+
+    const uploaded = await this.storageService.uploadFile(
+      buckets.users,
+      path,
+      file,
+      {
+        userId: user.id,
+        kind: 'avatar',
+      },
+    );
+
+    // Store file path in a stable URL-like form. Do NOT rely on MinIO host being reachable by clients.
+    const stableAvatarRef = `${buckets.users}/${uploaded.path}`;
+    const updated = await this.usersService.update(user.id, {
+      avatar: stableAvatarRef,
+    });
+    return this.mapToUserProfile(updated);
+  }
+
+  async getMyAvatarSignedUrl(params: {
+    keycloakId: string;
+    requestHost?: string;
+    requestProto?: string;
+  }): Promise<{ url: string } | { url: null }> {
+    const user = await this.usersService.findByKeycloakId(params.keycloakId);
+    if (!user) throw new UnauthorizedException('User not found');
+
+    const avatar = String(user.avatar || '').trim();
+    if (!avatar) return { url: null };
+
+    const buckets = this.storageService.getBuckets();
+
+    // Supported formats:
+    // - "users/<path>"
+    // - "http://.../users/<path>"
+    let bucket = buckets.users;
+    let key = '';
+
+    const directMatch = avatar.match(/^(users|public|brands|cafes)\/(.+)$/);
+    if (directMatch) {
+      bucket = directMatch[1];
+      key = directMatch[2];
+    } else {
+      const urlMatch = avatar.match(/\/(users|public|brands|cafes)\/(.+)$/);
+      if (urlMatch) {
+        bucket = urlMatch[1];
+        key = decodeURIComponent(urlMatch[2]);
+      }
+    }
+
+    if (!key) return { url: null };
+
+    const proto = (params.requestProto || 'http')
+      .toLowerCase()
+      .includes('https')
+      ? 'https'
+      : 'http';
+    const hostRaw = String(params.requestHost || '').trim();
+    const host = hostRaw.includes(':') ? hostRaw.split(':')[0] : hostRaw;
+    if (!host) return { url: null };
+
+    // Sign URL against the host that the mobile device can reach.
+    const endpoint = `${proto}://${host}:9000`;
+    const signed = await this.storageService.getFileUrlForEndpoint(
+      bucket,
+      key,
+      endpoint,
+      3600,
+    );
+    return { url: signed };
   }
 
   async changePassword(

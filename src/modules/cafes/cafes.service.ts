@@ -30,6 +30,7 @@ import {
 import { WorkersService } from '../workers/workers.service';
 import { WorkerRole } from '@prisma/client';
 import { firstValueFrom } from 'rxjs';
+import { StorageService } from '../storage/storage.service';
 
 @Injectable()
 export class CafesService {
@@ -39,7 +40,97 @@ export class CafesService {
     private readonly prisma: PrismaService,
     private readonly workersService: WorkersService,
     private readonly httpService: HttpService,
+    private readonly storageService: StorageService,
   ) {}
+
+  private parseStorageRef(
+    input: string,
+  ): { bucket: string; key: string } | null {
+    const raw = String(input || '').trim();
+    if (!raw) return null;
+
+    const buckets = this.storageService.getBuckets();
+    const bucketNames = Object.values(buckets);
+
+    // Format: "<bucket>/<key>"
+    const direct = raw.match(/^([^/]+)\/(.+)$/);
+    if (direct && bucketNames.includes(direct[1])) {
+      return { bucket: direct[1], key: direct[2] };
+    }
+
+    // Format: "http(s)://.../<bucket>/<key>" (bucket may change in config)
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      let pathname = '';
+      try {
+        pathname = new URL(raw).pathname;
+      } catch {
+        // Ignore invalid URL formats and fall back to raw value handling
+      }
+
+      const parts = pathname.split('/').filter(Boolean);
+      if (parts.length >= 2) {
+        const idx = parts.findIndex((p) => bucketNames.includes(p));
+        if (idx >= 0 && idx < parts.length - 1) {
+          const bucket = parts[idx];
+          let key = parts.slice(idx + 1).join('/');
+          try {
+            key = decodeURIComponent(key);
+          } catch {
+            // ignore
+          }
+          return { bucket, key };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  async getSignedCafePhotoUrls(params: {
+    cafeId: string;
+    requestHost?: string;
+    requestProto?: string;
+  }): Promise<string[]> {
+    const cafe = await this.prisma.cafe.findFirst({
+      where: { id: params.cafeId, deletedAt: null },
+      select: { photos: true },
+    });
+    if (!cafe)
+      throw new NotFoundException(`Cafe with ID ${params.cafeId} not found`);
+
+    const hostRaw = String(params.requestHost || '').trim();
+    const host = hostRaw.includes(':') ? hostRaw.split(':')[0] : hostRaw;
+    const proto = (params.requestProto || 'http')
+      .toLowerCase()
+      .includes('https')
+      ? 'https'
+      : 'http';
+    const endpoint = host ? `${proto}://${host}:9000` : '';
+
+    const out: string[] = [];
+    for (const photo of cafe.photos || []) {
+      const ref = this.parseStorageRef(photo);
+      if (!ref || !endpoint) {
+        // Keep as-is for external URLs
+        if (typeof photo === 'string' && photo.trim()) out.push(photo.trim());
+        continue;
+      }
+      try {
+        const signed = await this.storageService.getFileUrlForEndpoint(
+          ref.bucket,
+          ref.key,
+          endpoint,
+          3600,
+        );
+        out.push(signed);
+      } catch {
+        // Fallback to raw value
+        if (typeof photo === 'string' && photo.trim()) out.push(photo.trim());
+      }
+    }
+
+    return out;
+  }
 
   /**
    * Check if user has access to cafe operations

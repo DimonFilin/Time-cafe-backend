@@ -25,6 +25,12 @@ import { FileMetadataDto } from './dto/file-metadata.dto';
 export class StorageService implements OnModuleInit {
   private readonly logger = new Logger(StorageService.name);
   private s3Client: S3Client;
+  private readonly s3Config: {
+    accessKey: string;
+    secretKey: string;
+    region: string;
+    useSSL: boolean;
+  };
   private readonly buckets: {
     brands: string;
     cafes: string;
@@ -44,6 +50,8 @@ export class StorageService implements OnModuleInit {
       this.configService.get<string>('STORAGE_REGION') || 'us-east-1';
     const useSSL = this.configService.get<boolean>('STORAGE_USE_SSL', false);
 
+    this.s3Config = { accessKey, secretKey, region, useSSL };
+
     this.s3Client = new S3Client({
       endpoint,
       region,
@@ -61,6 +69,19 @@ export class StorageService implements OnModuleInit {
       users: 'users',
       public: 'public',
     };
+  }
+
+  private createS3Client(endpoint: string) {
+    return new S3Client({
+      endpoint,
+      region: this.s3Config.region,
+      credentials: {
+        accessKeyId: this.s3Config.accessKey,
+        secretAccessKey: this.s3Config.secretKey,
+      },
+      forcePathStyle: true,
+      ...(this.s3Config.useSSL ? {} : { tls: false }),
+    });
   }
 
   async onModuleInit(): Promise<void> {
@@ -142,12 +163,15 @@ export class StorageService implements OnModuleInit {
         `File uploaded successfully: ${bucket}/${path}, ETag: ${response.ETag}`,
       );
 
-      const endpoint =
+      const fileSystemBaseRaw =
+        this.configService.get<string>('BACKEND_FILE_SYSTEM_URL') ||
+        this.configService.get<string>('BACKEND_FILE_SYSTEM') ||
         this.configService.get<string>('STORAGE_ENDPOINT') ||
         'http://localhost:9000';
+      const fileSystemBase = String(fileSystemBaseRaw).replace(/\/+$/, '');
       // Encode path for URL
       const encodedPath = encodeURIComponent(path).replace(/%2F/g, '/');
-      const url = `${endpoint}/${bucket}/${encodedPath}`;
+      const url = `${fileSystemBase}/${bucket}/${encodedPath}`;
 
       return {
         url,
@@ -225,6 +249,25 @@ export class StorageService implements OnModuleInit {
       this.logger.error(`Get file URL error: ${errorMessage}`, errorStack);
       throw new BadRequestException(`Failed to get file URL: ${errorMessage}`);
     }
+  }
+
+  async getFileUrlForEndpoint(
+    bucket: string,
+    path: string,
+    endpoint: string,
+    expiresIn: number = 3600,
+  ): Promise<string> {
+    const exists = await this.fileExists(bucket, path);
+    if (!exists) {
+      throw new NotFoundException(`File not found: ${bucket}/${path}`);
+    }
+
+    const client = this.createS3Client(endpoint);
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: path,
+    });
+    return getSignedUrl(client, command, { expiresIn });
   }
 
   /**

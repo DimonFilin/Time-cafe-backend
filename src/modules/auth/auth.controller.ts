@@ -10,13 +10,19 @@ import {
   Request,
   Response,
   UnauthorizedException,
+  BadRequestException,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import { Response as ExpressResponse } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
 import { Public } from 'nest-keycloak-connect';
 import { AuthService } from './services/auth.service';
@@ -235,6 +241,75 @@ export class AuthController {
       throw new UnauthorizedException('User not authenticated');
     }
     return this.authService.updateProfile(keycloakId, dto);
+  }
+
+  @Post('me/avatar')
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Upload avatar for current user',
+    description:
+      'Uploads avatar image to storage and updates current user profile',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'User profile updated successfully',
+    type: UserProfileDto,
+  })
+  async uploadMyAvatar(
+    @Request() req: { user?: { sub?: string } },
+    @UploadedFile()
+    file:
+      | {
+          buffer: Buffer;
+          mimetype: string;
+          size: number;
+          originalname?: string;
+        }
+      | undefined,
+  ): Promise<UserProfileDto> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) throw new UnauthorizedException('User not authenticated');
+    if (!file) throw new BadRequestException('File is required');
+    return this.authService.uploadMyAvatar(keycloakId, file);
+  }
+
+  @Get('me/avatar-url')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get signed URL for current user avatar',
+    description: 'Returns signed URL to display avatar from storage',
+  })
+  async getMyAvatarUrl(
+    @Request()
+    req: {
+      user?: { sub?: string };
+      headers?: { host?: string; 'x-forwarded-proto'?: string };
+    },
+  ): Promise<{ url: string | null }> {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) throw new UnauthorizedException('User not authenticated');
+
+    const host = req.headers?.host;
+    const proto = req.headers?.['x-forwarded-proto'];
+
+    const res = await this.authService.getMyAvatarSignedUrl({
+      keycloakId,
+      requestHost: host,
+      requestProto: proto,
+    });
+    return res as { url: string | null };
   }
 
   @Post('change-password')

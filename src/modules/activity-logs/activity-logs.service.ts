@@ -56,6 +56,9 @@ export class ActivityLogsService {
       sortOrder = 'desc',
     } = filters;
 
+    const numPage = Number(page) || 1;
+    const numLimit = Number(limit) || 50;
+
     const where: Prisma.ActivityLogWhereInput = {};
 
     if (workerId) where.workerId = workerId;
@@ -103,8 +106,8 @@ export class ActivityLogsService {
           },
         },
         orderBy,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip: (numPage - 1) * numLimit,
+        take: numLimit,
       }),
       this.prisma.activityLog.count({ where }),
     ]);
@@ -113,9 +116,9 @@ export class ActivityLogsService {
       logs,
       pagination: {
         total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
+        page: numPage,
+        limit: numLimit,
+        totalPages: Math.ceil(total / numLimit),
       },
     };
   }

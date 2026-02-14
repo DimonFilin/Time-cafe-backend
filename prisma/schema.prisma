@@ -7,11 +7,411 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model WorkerAccount {
+  id                   String            @id @default(uuid())
+  keycloakId           String
+  email                String
+  firstName            String
+  lastName             String
+  role                 WorkerRole
+  shiftStatus          WorkerShiftStatus @default(OFF_SHIFT)
+  brandId              String?
+  cafeId               String?
+  deletedAt            DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  activityLogs         ActivityLog[]
+  taskCompletions      TaskCompletion[]
+  createdTaskTemplates TaskTemplate[]
+  brand                Brand?            @relation(fields: [brandId], references: [id])
+  cafe                 Cafe?             @relation(fields: [cafeId], references: [id])
+
+  @@map("worker_accounts")
+}
+
+model User {
+  id           String        @id @default(uuid())
+  keycloakId   String
+  email        String
+  firstName    String
+  lastName     String
+  phone        String?
+  avatar       String?
+  balance      Decimal       @default(0) @db.Decimal(10, 2)
+  deletedAt    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  bookings     Appointment[]
+  orders       Order[]
+  paymentCards PaymentCard[]
+  reviews      Review[]
+  transactions Transaction[]
+
+  @@map("users")
+}
+
+model Brand {
+  id              String          @id @default(uuid())
+  name            String
+  description     String?
+  logo            String?
+  primaryColor    String?         @default("#000000")
+  secondaryColor  String?
+  accentColor     String?
+  backgroundColor String?
+  textColor       String?
+  fontFamily      String?
+  favicon         String?
+  bannerImage     String?
+  backgroundImage String?
+  website         String?
+  phone           String?
+  email           String?
+  address         String?
+  status          BrandStatus     @default(PENDING)
+  isVerified      Boolean         @default(false)
+  verifiedAt      DateTime?
+  settings        Json?
+  deletedAt       DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  activityLogs    ActivityLog[]
+  apiKeys         BrandApiKey[]
+  legalDocuments  BrandDocument[]
+  cafes           Cafe[]
+  workerAccounts  WorkerAccount[]
+
+  @@map("brands")
+}
+
+model Region {
+  id        String   @id @default(uuid())
+  name      String
+  country   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  cafes     Cafe[]
+
+  @@map("regions")
+}
+
+model Cafe {
+  id             String          @id @default(uuid())
+  name           String
+  description    String?
+  address        String
+  city           String
+  street         String?
+  latitude       Float
+  longitude      Float
+  photos         String[]
+  rating         Float?          @default(0)
+  reviewsCount   Int             @default(0)
+  brandId        String
+  regionId       String
+  cafeApiUrl     String?
+  deletedAt      DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  activityLogs   ActivityLog[]
+  appointments   Appointment[]
+  brand          Brand           @relation(fields: [brandId], references: [id])
+  region         Region          @relation(fields: [regionId], references: [id])
+  orders         Order[]
+  reviews        Review[]
+  taskTemplates  TaskTemplate[]
+  workerAccounts WorkerAccount[]
+
+  @@map("cafes")
+}
+
+model Order {
+  id                 String        @id @default(uuid())
+  orderNumber        String        @unique
+  userId             String
+  cafeId             String
+  appointmentId      String?       @unique
+  status             OrderStatus   @default(PENDING)
+  totalAmount        Decimal       @db.Decimal(10, 2)
+  deliveryType       DeliveryType  @default(IN_CAFE)
+  deliveryAddress    String?
+  contactPhone       String?
+  notes              String?
+  paymentMethod      PaymentMethod @default(CARD)
+  paidAt             DateTime?
+  confirmedAt        DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  items              OrderItem[]
+  appointment        Appointment?  @relation(fields: [appointmentId], references: [id])
+  cafe               Cafe          @relation(fields: [cafeId], references: [id])
+  user               User          @relation(fields: [userId], references: [id])
+  review             Review?
+  transactions       Transaction[]
+
+  @@index([userId, createdAt])
+  @@index([cafeId, status])
+  @@index([orderNumber])
+  @@map("orders")
+}
+
+model OrderItem {
+  id         String   @id @default(uuid())
+  orderId    String
+  itemName   String
+  quantity   Int
+  unitPrice  Decimal  @db.Decimal(10, 2)
+  totalPrice Decimal  @db.Decimal(10, 2)
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model Review {
+  id         String    @id @default(uuid())
+  userId     String
+  cafeId     String
+  orderId    String?   @unique
+  rating     Float
+  comment    String?
+  pros       String[]
+  cons       String[]
+  photos     String[]
+  isVerified Boolean   @default(false)
+  verifiedAt DateTime?
+  verifiedBy String?
+  deletedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  cafe       Cafe      @relation(fields: [cafeId], references: [id])
+  order      Order?    @relation(fields: [orderId], references: [id])
+  user       User      @relation(fields: [userId], references: [id])
+
+  @@index([cafeId, createdAt])
+  @@index([userId, cafeId])
+  @@index([orderId])
+  @@map("reviews")
+}
+
+model Appointment {
+  id            String   @id @default(uuid())
+  userId        String
+  cafeId        String
+  dateTime      DateTime
+  duration      Int
+  status        String   @default("pending")
+  qrCode        String?  @unique
+  totalAmount   Decimal? @db.Decimal(10, 2)
+  paymentMethod String?
+  transactionId String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  cafe          Cafe     @relation(fields: [cafeId], references: [id])
+  user          User     @relation(fields: [userId], references: [id])
+  order         Order?
+
+  @@map("appointments")
+}
+
+model PaymentCard {
+  id            String        @id @default(uuid())
+  userId        String
+  last4Digits   String
+  cardType      String
+  expiryMonth   Int
+  expiryYear    Int
+  providerToken String?
+  isDefault     Boolean       @default(false)
+  isActive      Boolean       @default(true)
+  holderName    String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+  user          User          @relation(fields: [userId], references: [id])
+  transactions  Transaction[]
+
+  @@index([userId, deletedAt])
+  @@map("payment_cards")
+}
+
+model Transaction {
+  id                    String            @id @default(uuid())
+  userId                String
+  type                  TransactionType
+  status                TransactionStatus @default(PENDING)
+  amount                Decimal           @db.Decimal(10, 2)
+  currency              String            @default("RUB")
+  orderId               String?
+  cardId                String?
+  provider              String?
+  providerTransactionId String?
+  description           String?
+  metadata              Json?
+  retryCount            Int               @default(0)
+  maxRetries            Int               @default(3)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  card                  PaymentCard?      @relation(fields: [cardId], references: [id])
+  order                 Order?            @relation(fields: [orderId], references: [id])
+  user                  User              @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([orderId])
+  @@map("transactions")
+}
+
+model BrandDocument {
+  id               String       @id @default(uuid())
+  brandId          String
+  type             DocumentType
+  name             String
+  fileUrl          String
+  fileType         String?
+  fileSize         Int?
+  uploadedAt       DateTime     @default(now())
+  verifiedAt       DateTime?
+  verifiedBy       String?
+  isVerified       Boolean      @default(false)
+  verificationNote String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  brand            Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@index([brandId])
+  @@map("brand_documents")
+}
+
+model BrandApiKey {
+  id          String    @id @default(uuid())
+  brandId     String
+  name        String
+  keyHash     String    @unique
+  prefix      String
+  permissions String[]
+  isActive    Boolean   @default(true)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  brand       Brand     @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@index([brandId, isActive])
+  @@index([keyHash])
+  @@map("brand_api_keys")
+}
+
+model SystemSettings {
+  id        String   @id @default("system")
+  settings  Json
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@map("system_settings")
+}
+
+model ActivityLog {
+  id           String           @id @default(uuid())
+  workerId     String
+  workerEmail  String
+  workerRole   WorkerRole
+  brandId      String?
+  cafeId       String?
+  action       ActivityAction
+  category     ActivityCategory
+  severity     LogSeverity      @default(INFO)
+  resourceType String
+  resourceId   String?
+  details      Json?
+  metadata     Json?
+  ipAddress    String?
+  userAgent    String?
+  endpoint     String?
+  method       String?
+  statusCode   Int?
+  duration     Int?
+  createdAt    DateTime         @default(now())
+  brand        Brand?           @relation(fields: [brandId], references: [id])
+  cafe         Cafe?            @relation(fields: [cafeId], references: [id])
+  worker       WorkerAccount    @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@index([workerId, createdAt(sort: Desc)])
+  @@index([brandId, createdAt(sort: Desc)])
+  @@index([cafeId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@index([category, createdAt(sort: Desc)])
+  @@index([severity, createdAt(sort: Desc)])
+  @@index([resourceType, resourceId])
+  @@map("activity_logs")
+}
+
+model TaskTemplate {
+  id                String             @id @default(uuid())
+  cafeId            String
+  title             String
+  description       String?
+  category          TaskCategory
+  priority          TaskPriority
+  requiresPhoto     Boolean            @default(false)
+  requiresComment   Boolean            @default(false)
+  estimatedMinutes  Int?
+  assignmentType    TaskAssignmentType
+  assignedWorkerIds String[]
+  assignedRoles     WorkerRole[]
+  isActive          Boolean            @default(true)
+  daysOfWeek        Int[]
+  createdById       String
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  completions       TaskCompletion[]
+  cafe              Cafe               @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  createdBy         WorkerAccount      @relation(fields: [createdById], references: [id])
+
+  @@index([cafeId])
+  @@index([cafeId, isActive])
+  @@index([cafeId, category])
+  @@map("task_templates")
+}
+
+model TaskCompletion {
+  id              String        @id @default(uuid())
+  templateId      String
+  workerId        String
+  completedAt     DateTime      @default(now())
+  completionDate  DateTime
+  photoUrl        String?
+  comment         String?
+  durationMinutes Int?
+  template        TaskTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  worker          WorkerAccount @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, workerId, completionDate])
+  @@index([templateId, completionDate])
+  @@index([workerId, completionDate])
+  @@index([completionDate])
+  @@map("task_completions")
+}
+
 enum WorkerRole {
   SYSTEM_ADMIN
   BRAND_ADMIN
   CAFE_ADMIN
   WORKER
+}
+
+enum WorkerShiftStatus {
+  ON_SHIFT
+  OFF_SHIFT
 }
 
 enum OrderStatus {
@@ -34,49 +434,38 @@ enum PaymentMethod {
 }
 
 enum TransactionType {
-  PAYMENT // Платеж картой
-  REFUND // Возврат средств
+  PAYMENT
+  REFUND
 }
 
 enum TransactionStatus {
-  PENDING // Ожидает обработки
-  PROCESSING // В процессе
-  COMPLETED // Успешно завершена
-  FAILED // Ошибка
-  CANCELLED // Отменена
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
 }
 
 enum ActivityAction {
-  // Auth
   LOGIN
   LOGOUT
   PASSWORD_CHANGE
   TOKEN_REFRESH
-  
-  // Data operations
   CREATE
   UPDATE
   DELETE
   BULK_UPDATE
   BULK_DELETE
-  
-  // Views
   VIEW_LIST
   VIEW_DETAIL
   VIEW_REPORT
   EXPORT_DATA
-  
-  // Navigation
   PAGE_VIEW
   MODAL_OPEN
   MODAL_CLOSE
   TAB_SWITCH
-  
-  // Config
   UPDATE_SETTINGS
   UPDATE_PERMISSIONS
-  
-  // Special
   FILE_UPLOAD
   FILE_DELETE
   PAYMENT_PROCESS
@@ -98,430 +487,36 @@ enum LogSeverity {
 }
 
 enum BrandStatus {
-  PENDING // Ожидает проверки
-  ACTIVE // Активен
-  SUSPENDED // Приостановлен
-  REJECTED // Отклонен
+  PENDING
+  ACTIVE
+  SUSPENDED
+  REJECTED
 }
 
 enum DocumentType {
-  REGISTRATION // Свидетельство о регистрации
-  LICENSE // Лицензия на деятельность
-  CONTRACT // Договор с платформой
-  TAX_CERTIFICATE // Справка из налоговой
-  BANK_STATEMENT // Выписка из банка
-  OTHER // Другое
+  REGISTRATION
+  LICENSE
+  CONTRACT
+  TAX_CERTIFICATE
+  BANK_STATEMENT
+  OTHER
 }
 
-model WorkerAccount {
-  id         String     @id @default(uuid())
-  keycloakId String
-  email      String
-  firstName  String
-  lastName   String
-  role       WorkerRole
-  brandId    String?
-  brand      Brand?     @relation(fields: [brandId], references: [id])
-  cafeId     String?
-  cafe       Cafe?      @relation(fields: [cafeId], references: [id])
-  deletedAt  DateTime?
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-
-  activityLogs ActivityLog[]
-
-  @@map("worker_accounts")
+enum TaskCategory {
+  OPENING
+  SHIFT
+  CLOSING
+  GENERAL
 }
 
-model User {
-  id         String    @id @default(uuid())
-  keycloakId String
-  email      String
-  firstName  String
-  lastName   String
-  phone      String?
-  avatar     String?
-  balance    Decimal   @default(0) @db.Decimal(10, 2)
-  deletedAt  DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-
-  orders       Order[]
-  reviews      Review[]
-  bookings     Appointment[]
-  paymentCards PaymentCard[]
-  transactions Transaction[]
-
-  @@map("users")
+enum TaskPriority {
+  HIGH
+  MEDIUM
+  LOW
 }
 
-model Brand {
-  id           String  @id @default(uuid())
-  name         String
-  description  String?
-  logo         String?
-  primaryColor String? @default("#000000")
-
-  // Customization
-  secondaryColor  String?
-  accentColor     String?
-  backgroundColor String?
-  textColor       String?
-  fontFamily      String?
-
-  // Media
-  favicon         String?
-  bannerImage     String?
-  backgroundImage String?
-
-  // Contact information
-  website String?
-  phone   String?
-  email   String?
-  address String?
-
-  // Status and verification
-  status     BrandStatus @default(PENDING)
-  isVerified Boolean     @default(false)
-  verifiedAt DateTime?
-
-  // Settings
-  settings Json?
-
-  // Soft delete
-  deletedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  cafes          Cafe[]
-  workerAccounts WorkerAccount[]
-  legalDocuments BrandDocument[]
-  apiKeys        BrandApiKey[]
-  activityLogs   ActivityLog[]
-
-  @@map("brands")
-}
-
-model Region {
-  id        String   @id @default(uuid())
-  name      String
-  country   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  cafes Cafe[]
-
-  @@map("regions")
-}
-
-model Cafe {
-  id           String    @id @default(uuid())
-  name         String
-  description  String?
-  address      String
-  city         String
-  street       String?
-  latitude     Float
-  longitude    Float
-  photos       String[]
-  rating       Float?    @default(0)
-  reviewsCount Int       @default(0)
-  brandId      String
-  brand        Brand     @relation(fields: [brandId], references: [id])
-  regionId     String
-  region       Region    @relation(fields: [regionId], references: [id])
-  cafeApiUrl   String? // URL к локальному сервису кофейни
-  deletedAt    DateTime? // Soft delete
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
-  workerAccounts WorkerAccount[]
-  orders         Order[]
-  reviews        Review[]
-  appointments   Appointment[]
-  activityLogs   ActivityLog[]
-
-  @@map("cafes")
-}
-
-model Order {
-  id            String       @id @default(uuid())
-  orderNumber   String       @unique
-  userId        String
-  user          User         @relation(fields: [userId], references: [id])
-  cafeId        String
-  cafe          Cafe         @relation(fields: [cafeId], references: [id])
-  appointmentId String?      @unique
-  appointment   Appointment? @relation(fields: [appointmentId], references: [id])
-  status        OrderStatus  @default(PENDING)
-  totalAmount   Decimal      @db.Decimal(10, 2)
-
-  deliveryType    DeliveryType @default(IN_CAFE)
-  deliveryAddress String?
-  contactPhone    String?
-  notes           String?
-
-  paymentMethod PaymentMethod @default(CARD)
-
-  paidAt             DateTime?
-  confirmedAt        DateTime?
-  completedAt        DateTime?
-  cancelledAt        DateTime?
-  cancellationReason String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  items        OrderItem[]
-  transactions Transaction[]
-  review       Review?
-
-  @@index([userId, createdAt])
-  @@index([cafeId, status])
-  @@index([orderNumber])
-  @@map("orders")
-}
-
-model OrderItem {
-  id         String   @id @default(uuid())
-  orderId    String
-  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  itemName   String
-  quantity   Int
-  unitPrice  Decimal  @db.Decimal(10, 2)
-  totalPrice Decimal  @db.Decimal(10, 2)
-  notes      String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@index([orderId])
-  @@map("order_items")
-}
-
-model Review {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  cafeId    String
-  cafe      Cafe     @relation(fields: [cafeId], references: [id])
-  orderId   String?  @unique 
-  order     Order?   @relation(fields: [orderId], references: [id])
-  
-  // Raiting
-  rating    Float    // 0.0-5.0 (float для более точного рейтинга)
-  comment   String?  // Основной текст отзыва
-  
-  // Структурированная информация
-  pros      String[] // Плюсы (массив строк)
-  cons      String[] // Минусы (массив строк)
-  
-  // Медиа
-  photos    String[] // Фото к отзыву (массив URL)
-  
-  // Модерация
-  isVerified Boolean @default(false) // Проверен ли отзыв модератором
-  verifiedAt DateTime?
-  verifiedBy String? // ID модератора (SYSTEM_ADMIN или BRAND_ADMIN)
-  
-  // Soft delete
-  deletedAt DateTime?
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([cafeId, createdAt])
-  @@index([userId, cafeId])
-  @@index([orderId])
-  @@map("reviews")
-}
-
-model Appointment {
-  id       String   @id @default(uuid())
-  userId   String
-  user     User     @relation(fields: [userId], references: [id])
-  cafeId   String
-  cafe     Cafe     @relation(fields: [cafeId], references: [id])
-  dateTime DateTime
-  duration Int // в минутах
-  status   String   @default("pending") // pending, confirmed, cancelled, completed
-  qrCode   String?  @unique
-
-  totalAmount   Decimal? @db.Decimal(10, 2)
-  paymentMethod String? // "CARD", "BALANCE", "CASH", "FREE"
-  transactionId String?
-  notes       String? // комментарии к бронированию
-
-  order Order? @relation
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("appointments")
-}
-
-model PaymentCard {
-  id     String @id @default(uuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  last4Digits String // Последние 4 цифры (например, "1234")
-  cardType    String // "visa", "mastercard", "mir"
-  expiryMonth Int // Месяц истечения (1-12)
-  expiryYear  Int // Год истечения
-
-  providerToken String? // Токен для повторных платежей (симуляция Stripe токена)
-
-  isDefault  Boolean @default(false)
-  isActive   Boolean @default(true)
-  holderName String? // Имя держателя карты
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime? // Soft delete для карт
-
-  transactions Transaction[]
-
-  @@index([userId, deletedAt])
-  @@map("payment_cards")
-}
-
-model Transaction {
-  id     String @id @default(uuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  type   TransactionType
-  status TransactionStatus @default(PENDING)
-
-  amount   Decimal @db.Decimal(10, 2)
-  currency String  @default("RUB")
-
-  orderId String? // Если транзакция связана с заказом
-  order   Order?       @relation(fields: [orderId], references: [id])
-  cardId  String? // Если использовалась карта
-  card    PaymentCard? @relation(fields: [cardId], references: [id])
-
-  provider              String? // "stripe" (симуляция)
-  providerTransactionId String? // ID транзакции в системе провайдера (симуляция)
-
-  description String? // Описание транзакции
-  metadata    Json? // Дополнительные данные (JSON)
-
-  retryCount Int @default(0) // Количество попыток повторного платежа
-  maxRetries Int @default(3) // Максимальное количество попыток
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId, createdAt])
-  @@index([status])
-  @@index([orderId])
-  @@map("transactions")
-}
-
-model BrandDocument {
-  id      String @id @default(uuid())
-  brandId String
-  brand   Brand  @relation(fields: [brandId], references: [id], onDelete: Cascade)
-
-  type     DocumentType
-  name     String
-  fileUrl  String
-  fileType String?
-  fileSize Int?
-
-  uploadedAt       DateTime  @default(now())
-  verifiedAt       DateTime?
-  verifiedBy       String?
-  isVerified       Boolean   @default(false)
-  verificationNote String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([brandId])
-  @@map("brand_documents")
-}
-
-model BrandApiKey {
-  id      String @id @default(uuid())
-  brandId String
-  brand   Brand  @relation(fields: [brandId], references: [id], onDelete: Cascade)
-
-  name    String
-  keyHash String @unique
-  prefix  String
-
-  permissions String[]
-  isActive    Boolean   @default(true)
-  lastUsedAt  DateTime?
-  expiresAt   DateTime?
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  @@index([brandId, isActive])
-  @@index([keyHash])
-  @@map("brand_api_keys")
-}
-
-model SystemSettings {
-  id        String   @id @default("system")
-  settings  Json // JSON объект с настройками
-  updatedBy String? // ID SYSTEM_ADMIN, который обновил настройки
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
-
-  @@map("system_settings")
-}
-
-model ActivityLog {
-  id String @id @default(uuid())
-
-  // Actor (кто)
-  workerId    String
-  worker      WorkerAccount @relation(fields: [workerId], references: [id], onDelete: Cascade)
-  workerEmail String // Денормализация для быстрого поиска
-  workerRole  WorkerRole
-
-  // Context (где)
-  brandId String?
-  brand   Brand?  @relation(fields: [brandId], references: [id], onDelete: SetNull)
-  cafeId  String?
-  cafe    Cafe?   @relation(fields: [cafeId], references: [id], onDelete: SetNull)
-
-  // Action (что)
-  action   ActivityAction
-  category ActivityCategory
-  severity LogSeverity      @default(INFO)
-
-  // Resource (над чем)
-  resourceType String // "ORDER", "USER", "CAFE", "BRAND", "WORKER"
-  resourceId   String?
-
-  // Details (как и зачем)
-  details  Json? // { oldValue, newValue, reason, etc }
-  metadata Json? // Дополнительные данные
-
-  // Technical
-  ipAddress  String?
-  userAgent  String?
-  endpoint   String? // API endpoint
-  method     String? // HTTP method
-  statusCode Int? // Response status
-  duration   Int? // Request duration in ms
-
-  // Timestamps
-  createdAt DateTime @default(now())
-
-  @@index([workerId, createdAt(sort: Desc)])
-  @@index([brandId, createdAt(sort: Desc)])
-  @@index([cafeId, createdAt(sort: Desc)])
-  @@index([action, createdAt(sort: Desc)])
-  @@index([category, createdAt(sort: Desc)])
-  @@index([severity, createdAt(sort: Desc)])
-  @@index([resourceType, resourceId])
-  @@map("activity_logs")
+enum TaskAssignmentType {
+  ALL_WORKERS
+  SPECIFIC_WORKERS
+  ROLE_BASED
 }

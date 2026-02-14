@@ -36,6 +36,56 @@ export class BrandsService {
     private readonly workersService: WorkersService,
   ) {}
 
+  private getClientEndpoint(params?: {
+    requestHost?: string;
+    requestProto?: string;
+    clientHost?: string;
+    clientProto?: string;
+  }): string | null {
+    const protoRaw = String(
+      params?.clientProto || params?.requestProto || 'http',
+    );
+    const proto = protoRaw.toLowerCase().includes('https') ? 'https' : 'http';
+
+    const hostRaw = String(
+      params?.clientHost || params?.requestHost || '',
+    ).trim();
+    if (!hostRaw) return null;
+    const host = hostRaw.includes(':') ? hostRaw.split(':')[0] : hostRaw;
+    if (!host) return null;
+    return `${proto}://${host}:9000`;
+  }
+
+  private parseBrandsKey(input: string): string | null {
+    const raw = String(input || '').trim();
+    if (!raw) return null;
+
+    // Format: "brands/<key>"
+    const direct = raw.match(/^brands\/(.+)$/);
+    if (direct) return direct[1];
+
+    // Format: "http(s)://.../brands/<key>"
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      try {
+        const u = new URL(raw);
+        const parts = u.pathname.split('/').filter(Boolean);
+        const idx = parts.findIndex((p) => p === 'brands');
+        if (idx >= 0 && idx < parts.length - 1) {
+          const keyRaw = parts.slice(idx + 1).join('/');
+          try {
+            return decodeURIComponent(keyRaw);
+          } catch {
+            return keyRaw;
+          }
+        }
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  }
+
   /**
    * Get default brand settings
    */
@@ -1162,7 +1212,15 @@ export class BrandsService {
   /**
    * Get signed URL for brand logo
    */
-  async getLogoUrl(brandId: string): Promise<{ url: string }> {
+  async getLogoUrl(
+    brandId: string,
+    ctx?: {
+      requestHost?: string;
+      requestProto?: string;
+      clientHost?: string;
+      clientProto?: string;
+    },
+  ): Promise<{ url: string }> {
     const brand = await this.prisma.brand.findUnique({
       where: { id: brandId },
     });
@@ -1176,19 +1234,20 @@ export class BrandsService {
     }
 
     try {
-      const url = new URL(brand.logo);
-      const pathParts = url.pathname.split('/').filter((p) => p);
-      const brandsIndex = pathParts.findIndex((p) => p === 'brands');
-      if (brandsIndex === -1) {
-        throw new Error('Invalid file URL structure');
-      }
-      const filePath = pathParts.slice(brandsIndex + 1).join('/');
+      const key = this.parseBrandsKey(brand.logo);
+      if (!key) throw new Error('Invalid file URL structure');
 
-      const signedUrl = await this.storageService.getFileUrl(
-        this.storageService.getBuckets().brands,
-        filePath,
-        86400, // 24 hours
-      );
+      const endpoint = this.getClientEndpoint(ctx);
+      const bucket = this.storageService.getBuckets().brands;
+
+      const signedUrl = endpoint
+        ? await this.storageService.getFileUrlForEndpoint(
+            bucket,
+            key,
+            endpoint,
+            86400,
+          )
+        : await this.storageService.getFileUrl(bucket, key, 86400);
 
       this.logger.log(`Generated signed URL for logo of brand ${brandId}`);
       return { url: signedUrl };
@@ -1205,7 +1264,15 @@ export class BrandsService {
   /**
    * Get signed URL for brand banner
    */
-  async getBannerUrl(brandId: string): Promise<{ url: string }> {
+  async getBannerUrl(
+    brandId: string,
+    ctx?: {
+      requestHost?: string;
+      requestProto?: string;
+      clientHost?: string;
+      clientProto?: string;
+    },
+  ): Promise<{ url: string }> {
     const brand = await this.prisma.brand.findUnique({
       where: { id: brandId },
     });
@@ -1219,19 +1286,20 @@ export class BrandsService {
     }
 
     try {
-      const url = new URL(brand.bannerImage);
-      const pathParts = url.pathname.split('/').filter((p) => p);
-      const brandsIndex = pathParts.findIndex((p) => p === 'brands');
-      if (brandsIndex === -1) {
-        throw new Error('Invalid file URL structure');
-      }
-      const filePath = pathParts.slice(brandsIndex + 1).join('/');
+      const key = this.parseBrandsKey(brand.bannerImage);
+      if (!key) throw new Error('Invalid file URL structure');
 
-      const signedUrl = await this.storageService.getFileUrl(
-        this.storageService.getBuckets().brands,
-        filePath,
-        86400, // 24 hours
-      );
+      const endpoint = this.getClientEndpoint(ctx);
+      const bucket = this.storageService.getBuckets().brands;
+
+      const signedUrl = endpoint
+        ? await this.storageService.getFileUrlForEndpoint(
+            bucket,
+            key,
+            endpoint,
+            86400,
+          )
+        : await this.storageService.getFileUrl(bucket, key, 86400);
 
       this.logger.log(`Generated signed URL for banner of brand ${brandId}`);
       return { url: signedUrl };

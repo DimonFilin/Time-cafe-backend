@@ -85,8 +85,24 @@ export class BrandsController {
     description: 'Signed logo URL',
   })
   @ApiResponse({ status: 404, description: 'Logo not found' })
-  async getLogoUrl(@Param('id') brandId: string): Promise<{ url: string }> {
-    return this.brandsService.getLogoUrl(brandId);
+  async getLogoUrl(
+    @Param('id') brandId: string,
+    @Request()
+    req: {
+      headers?: {
+        host?: string;
+        'x-forwarded-proto'?: string;
+        'x-client-host'?: string;
+        'x-client-proto'?: string;
+      };
+    } = {},
+  ): Promise<{ url: string }> {
+    return this.brandsService.getLogoUrl(brandId, {
+      requestHost: req.headers?.host,
+      requestProto: req.headers?.['x-forwarded-proto'],
+      clientHost: req.headers?.['x-client-host'],
+      clientProto: req.headers?.['x-client-proto'],
+    });
   }
 
   @Get(':id/banner-url')
@@ -97,8 +113,24 @@ export class BrandsController {
     description: 'Signed banner URL',
   })
   @ApiResponse({ status: 404, description: 'Banner not found' })
-  async getBannerUrl(@Param('id') brandId: string): Promise<{ url: string }> {
-    return this.brandsService.getBannerUrl(brandId);
+  async getBannerUrl(
+    @Param('id') brandId: string,
+    @Request()
+    req: {
+      headers?: {
+        host?: string;
+        'x-forwarded-proto'?: string;
+        'x-client-host'?: string;
+        'x-client-proto'?: string;
+      };
+    } = {},
+  ): Promise<{ url: string }> {
+    return this.brandsService.getBannerUrl(brandId, {
+      requestHost: req.headers?.host,
+      requestProto: req.headers?.['x-forwarded-proto'],
+      clientHost: req.headers?.['x-client-host'],
+      clientProto: req.headers?.['x-client-proto'],
+    });
   }
 
   @Post()

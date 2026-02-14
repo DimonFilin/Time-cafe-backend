@@ -1,5 +1,19 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+export class AppointmentUserDto {
+  @ApiProperty({ description: 'Имя', example: 'Иван' })
+  firstName: string;
+
+  @ApiProperty({ description: 'Фамилия', example: 'Иванов' })
+  lastName: string;
+
+  @ApiPropertyOptional({ description: 'Email', example: 'user@example.com' })
+  email?: string;
+
+  @ApiPropertyOptional({ description: 'Телефон', example: '+79990000000' })
+  phone?: string;
+}
+
 export class AppointmentResponseDto {
   @ApiProperty({
     description: 'Уникальный идентификатор бронирования',
@@ -12,6 +26,12 @@ export class AppointmentResponseDto {
     example: '550e8400-e29b-41d4-a716-446655440001',
   })
   userId: string;
+
+  @ApiPropertyOptional({
+    description: 'Краткие данные пользователя (для выдачи сотрудникам кафе)',
+    type: AppointmentUserDto,
+  })
+  user?: AppointmentUserDto;
 
   @ApiProperty({
     description: 'ID кофейни',
