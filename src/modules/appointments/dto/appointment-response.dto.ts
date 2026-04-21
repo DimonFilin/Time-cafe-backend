@@ -96,6 +96,12 @@ export class AppointmentResponseDto {
   orderId?: string;
 
   @ApiPropertyOptional({
+    description: 'IDs связанных заказов (если заказов несколько)',
+    type: [String],
+  })
+  orderIds?: string[];
+
+  @ApiPropertyOptional({
     description: 'Комментарии к бронированию',
     example: 'Столик у окна для 4 человек',
   })

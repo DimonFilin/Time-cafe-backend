@@ -16,10 +16,11 @@ services:
       # KC_DB_USERNAME: keycloak
       # KC_DB_PASSWORD: keycloak
     ports:
-      - "8080:8080"
+      - '8080:8080'
     command: start-dev
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health/ready || exit 1"]
+      test:
+        ['CMD-SHELL', 'curl -f http://localhost:8080/health/ready || exit 1']
       interval: 30s
       timeout: 10s
       retries: 5
@@ -48,13 +49,13 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9000:9000"  # API endpoint
-      - "9001:9001"  # Web Console
+      - '9000:9000' # API endpoint
+      - '9001:9001' # Web Console
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
       interval: 30s
       timeout: 10s
       retries: 5
@@ -69,20 +70,20 @@ services:
     environment:
       APPSMITH_ENCRYPTION_PASSWORD: timecaffe-encryption-key-2024
       APPSMITH_ADMIN_EMAILS: admin@timecaffe.com
-      APPSMITH_DISABLE_EMBEDDED_KEYCLOAK: "1"  
-      APPSMITH_DISABLE_TELEMETRY: "1" 
+      APPSMITH_DISABLE_EMBEDDED_KEYCLOAK: '1'
+      APPSMITH_DISABLE_TELEMETRY: '1'
     ports:
-      - "8081:80" 
+      - '8081:80'
     volumes:
       - appsmith_data:/appsmith-stacks
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost"]
+      test: ['CMD', 'curl', '-f', 'http://localhost']
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
     depends_on:
-      - keycloak 
+      - keycloak
     networks:
       - time-cafe-network
 
@@ -95,7 +96,6 @@ volumes:
     driver: local
   appsmith_data:
     driver: local
-
 # volumes:
 #   keycloak-db-data:
 

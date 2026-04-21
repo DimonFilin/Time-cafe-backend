@@ -276,6 +276,10 @@ export class OrdersService {
       where.cafeId = query.cafeId;
     }
 
+    if (query.appointmentId) {
+      where.appointmentId = query.appointmentId;
+    }
+
     if (query.from || query.to) {
       where.createdAt = {};
       if (query.from) {

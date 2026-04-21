@@ -22,6 +22,8 @@ import { ActivityLogsModule } from './modules/activity-logs/activity-logs.module
 import { CafeWorkerModule } from './modules/cafe-worker/cafe-worker.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { CafeAdminModule } from './modules/cafe-admin/cafe-admin.module';
+import { MenuModule } from './modules/menu/menu.module';
+import { OrderChatModule } from './modules/order-chat/order-chat.module';
 
 @Module({
   imports: [
@@ -46,6 +48,8 @@ import { CafeAdminModule } from './modules/cafe-admin/cafe-admin.module';
     CafeWorkerModule,
     TasksModule,
     CafeAdminModule,
+    MenuModule,
+    OrderChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],

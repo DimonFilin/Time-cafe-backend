@@ -7,8 +7,13 @@ import {
   MaxLength,
   Min,
   Max,
+  IsBoolean,
+  IsEnum,
+  IsArray,
+  IsUUID,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { ChatNotificationMode, WorkerRole } from '@prisma/client';
 
 export class UpdateCafeDto {
   @ApiProperty({
@@ -51,6 +56,25 @@ export class UpdateCafeDto {
   @IsString()
   @MaxLength(100)
   city?: string;
+
+  @ApiProperty({
+    description: 'Street line (optional, separate from address)',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  street?: string;
+
+  @ApiProperty({
+    description: 'Public cafe API base URL',
+    example: 'https://api.example.com',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  cafeApiUrl?: string;
 
   @ApiProperty({
     description: 'Latitude',
@@ -102,4 +126,51 @@ export class UpdateCafeDto {
   @IsNumber()
   @Min(1)
   capacity?: number;
+
+  @ApiProperty({
+    required: false,
+    description: 'Default cafe chat enabled flag',
+  })
+  @IsOptional()
+  @IsBoolean()
+  chatEnabled?: boolean;
+
+  @ApiProperty({
+    required: false,
+    description: 'Cafe-level chat notification mode',
+    enum: ChatNotificationMode,
+  })
+  @IsOptional()
+  @IsEnum(ChatNotificationMode)
+  chatNotificationMode?: ChatNotificationMode;
+
+  @ApiProperty({
+    required: false,
+    description: 'Cafe-level role routing for chat notifications',
+    enum: WorkerRole,
+    isArray: true,
+  })
+  @IsOptional()
+  @IsArray()
+  @IsEnum(WorkerRole, { each: true })
+  chatNotificationRoles?: WorkerRole[];
+
+  @ApiProperty({
+    required: false,
+    description: 'Cafe-level explicit worker routing for chat notifications',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  chatNotificationWorkerIds?: string[];
+
+  @ApiProperty({
+    required: false,
+    description: 'Optional chat color override',
+    example: '#22c55e',
+  })
+  @IsOptional()
+  @IsString()
+  chatThemePrimaryColor?: string;
 }

@@ -23,6 +23,9 @@ model WorkerAccount {
   activityLogs         ActivityLog[]
   taskCompletions      TaskCompletion[]
   createdTaskTemplates TaskTemplate[]
+  chatMessages         OrderChatMessage[]
+  chatReadStates       OrderChatReadState[]
+  chatTypingStates     OrderChatTypingState[]
   brand                Brand?            @relation(fields: [brandId], references: [id])
   cafe                 Cafe?             @relation(fields: [cafeId], references: [id])
 
@@ -46,6 +49,10 @@ model User {
   paymentCards PaymentCard[]
   reviews      Review[]
   transactions Transaction[]
+  orderChats   OrderChat[]
+  chatMessages OrderChatMessage[]
+  chatReadStates OrderChatReadState[]
+  chatTypingStates OrderChatTypingState[]
 
   @@map("users")
 }
@@ -80,6 +87,7 @@ model Brand {
   legalDocuments  BrandDocument[]
   cafes           Cafe[]
   workerAccounts  WorkerAccount[]
+  orderChats      OrderChat[]
 
   @@map("brands")
 }
@@ -110,6 +118,7 @@ model Cafe {
   brandId        String
   regionId       String
   cafeApiUrl     String?
+  openingHours   Json?
   deletedAt      DateTime?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
@@ -118,11 +127,57 @@ model Cafe {
   brand          Brand           @relation(fields: [brandId], references: [id])
   region         Region          @relation(fields: [regionId], references: [id])
   orders         Order[]
+  menuCategories CafeMenuCategory[]
+  menuItems      CafeMenuItem[]
   reviews        Review[]
   taskTemplates  TaskTemplate[]
   workerAccounts WorkerAccount[]
+  orderChats     OrderChat[]
+  chatSettings   Json?
 
   @@map("cafes")
+}
+
+model CafeMenuCategory {
+  id          String   @id @default(uuid())
+  cafeId      String
+  key         String
+  name        String
+  description String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cafe  Cafe           @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  items CafeMenuItem[]
+
+  @@unique([cafeId, key])
+  @@index([cafeId, sortOrder])
+  @@map("cafe_menu_categories")
+}
+
+model CafeMenuItem {
+  id          String   @id @default(uuid())
+  cafeId      String
+  categoryId  String
+  key         String
+  name        String
+  description String?
+  price       Decimal  @db.Decimal(10, 2)
+  currency    String   @default("BYN")
+  photoUrl    String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cafe     Cafe             @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  category CafeMenuCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([cafeId, key])
+  @@index([cafeId, categoryId, sortOrder])
+  @@map("cafe_menu_items")
 }
 
 model Order {
@@ -130,7 +185,7 @@ model Order {
   orderNumber        String        @unique
   userId             String
   cafeId             String
-  appointmentId      String?       @unique
+  appointmentId      String?
   status             OrderStatus   @default(PENDING)
   totalAmount        Decimal       @db.Decimal(10, 2)
   deliveryType       DeliveryType  @default(IN_CAFE)
@@ -151,10 +206,12 @@ model Order {
   user               User          @relation(fields: [userId], references: [id])
   review             Review?
   transactions       Transaction[]
+  chat               OrderChat?
 
   @@index([userId, createdAt])
   @@index([cafeId, status])
   @@index([orderNumber])
+  @@index([appointmentId])
   @@map("orders")
 }
 
@@ -216,7 +273,7 @@ model Appointment {
   updatedAt     DateTime @updatedAt
   cafe          Cafe     @relation(fields: [cafeId], references: [id])
   user          User     @relation(fields: [userId], references: [id])
-  order         Order?
+  orders        Order[]
 
   @@map("appointments")
 }
@@ -248,7 +305,7 @@ model Transaction {
   type                  TransactionType
   status                TransactionStatus @default(PENDING)
   amount                Decimal           @db.Decimal(10, 2)
-  currency              String            @default("RUB")
+  currency              String            @default("BYN")
   orderId               String?
   cardId                String?
   provider              String?
@@ -402,6 +459,115 @@ model TaskCompletion {
   @@map("task_completions")
 }
 
+model OrderChat {
+  id                   String                 @id @default(uuid())
+  orderId              String                 @unique
+  cafeId               String
+  userId               String
+  brandId              String?
+  isEnabled            Boolean                @default(true)
+  notificationMode     ChatNotificationMode   @default(ALL_WORKERS)
+  notificationRoles    WorkerRole[]
+  notificationWorkerIds String[]
+  theme                Json?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  order                Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  cafe                 Cafe                   @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brand                Brand?                 @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  messages             OrderChatMessage[]
+  readStates           OrderChatReadState[]
+  typingStates         OrderChatTypingState[]
+
+  @@index([cafeId, updatedAt(sort: Desc)])
+  @@index([brandId, updatedAt(sort: Desc)])
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("order_chats")
+}
+
+model OrderChatMessage {
+  id             String             @id @default(uuid())
+  chatId          String
+  orderId         String
+  cafeId          String
+  authorType      ChatAuthorType
+  authorUserId    String?
+  authorWorkerId  String?
+  messageType     ChatMessageType   @default(TEXT)
+  text            String?
+  isDeleted       Boolean            @default(false)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  chat            OrderChat          @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  authorUser      User?              @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  authorWorker    WorkerAccount?     @relation(fields: [authorWorkerId], references: [id], onDelete: SetNull)
+  attachments     OrderChatAttachment[]
+  readStates      OrderChatReadState[]
+
+  @@index([chatId, createdAt])
+  @@index([orderId, createdAt])
+  @@index([cafeId, createdAt])
+  @@map("order_chat_messages")
+}
+
+model OrderChatAttachment {
+  id          String                @id @default(uuid())
+  chatId       String
+  messageId    String?
+  bucket       String
+  path         String
+  url          String
+  mimeType     String
+  size         Int
+  status       ChatAttachmentStatus @default(UPLOADED)
+  sortOrder    Int                  @default(0)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  message      OrderChatMessage?    @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, sortOrder])
+  @@index([chatId, createdAt])
+  @@map("order_chat_attachments")
+}
+
+model OrderChatReadState {
+  id                String            @id @default(uuid())
+  chatId             String
+  userId             String?
+  workerId           String?
+  unreadCount        Int               @default(0)
+  lastReadMessageId  String?
+  lastReadAt         DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  chat               OrderChat         @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user               User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  worker             WorkerAccount?    @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  lastReadMessage    OrderChatMessage? @relation(fields: [lastReadMessageId], references: [id], onDelete: SetNull)
+
+  @@unique([chatId, userId])
+  @@unique([chatId, workerId])
+  @@index([chatId, unreadCount])
+  @@map("order_chat_read_states")
+}
+
+model OrderChatTypingState {
+  id         String          @id @default(uuid())
+  chatId      String
+  userId      String?
+  workerId    String?
+  expiresAt   DateTime
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  chat        OrderChat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user        User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  worker      WorkerAccount? @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, expiresAt])
+  @@map("order_chat_typing_states")
+}
+
 enum WorkerRole {
   SYSTEM_ADMIN
   BRAND_ADMIN
@@ -519,4 +685,28 @@ enum TaskAssignmentType {
   ALL_WORKERS
   SPECIFIC_WORKERS
   ROLE_BASED
+}
+
+enum ChatNotificationMode {
+  ALL_WORKERS
+  ROLE_BASED
+  SPECIFIC_WORKERS
+}
+
+enum ChatAuthorType {
+  USER
+  WORKER
+}
+
+enum ChatMessageType {
+  TEXT
+  IMAGE
+  MIXED
+  SYSTEM
+}
+
+enum ChatAttachmentStatus {
+  UPLOADING
+  UPLOADED
+  FAILED
 }

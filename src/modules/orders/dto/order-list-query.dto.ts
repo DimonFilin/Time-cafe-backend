@@ -30,6 +30,14 @@ export class OrderListQueryDto {
   cafeId?: string;
 
   @ApiPropertyOptional({
+    example: '550e8400-e29b-41d4-a716-446655440003',
+    description: 'Filter by appointment ID (user orders for a booking)',
+  })
+  @IsOptional()
+  @IsUUID()
+  appointmentId?: string;
+
+  @ApiPropertyOptional({
     example: '2025-01-01',
     description: 'Filter orders from this date',
   })

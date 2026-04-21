@@ -513,6 +513,7 @@ export class AppointmentsService {
               email: true,
             },
           },
+          orders: { select: { id: true } },
         },
         orderBy: { dateTime: 'desc' },
         take: limit,
@@ -555,6 +556,7 @@ export class AppointmentsService {
             email: true,
           },
         },
+        orders: { select: { id: true } },
       },
     });
 
@@ -601,15 +603,10 @@ export class AppointmentsService {
 
     const updatedAppointment = await this.prisma.appointment.update({
       where: { id: appointmentId },
-      data: {
-        status: 'confirmed',
-      },
+      data: { status: 'confirmed' },
       include: {
-        cafe: {
-          select: {
-            name: true,
-          },
-        },
+        cafe: { select: { name: true } },
+        orders: { select: { id: true } },
       },
     });
 
@@ -649,6 +646,7 @@ export class AppointmentsService {
       data: { status: 'completed' },
       include: {
         cafe: { select: { name: true } },
+        orders: { select: { id: true } },
       },
     });
 
@@ -693,6 +691,7 @@ export class AppointmentsService {
       },
       include: {
         cafe: { select: { name: true } },
+        orders: { select: { id: true } },
       },
     });
 
@@ -763,11 +762,16 @@ export class AppointmentsService {
       totalAmount: unknown;
       paymentMethod: string;
       transactionId: string;
-      order?: { id: string };
+      orders?: Array<{ id: string }>;
       notes: string;
       createdAt: Date;
       updatedAt: Date;
     };
+
+    const orderIds = Array.isArray(app.orders)
+      ? app.orders.map((o) => o.id).filter(Boolean)
+      : [];
+    const orderId = orderIds.length ? orderIds[orderIds.length - 1] : undefined;
 
     return {
       id: app.id,
@@ -798,7 +802,8 @@ export class AppointmentsService {
         : undefined,
       paymentMethod: app.paymentMethod,
       transactionId: app.transactionId,
-      orderId: app.order?.id,
+      orderId,
+      orderIds: orderIds.length ? orderIds : undefined,
       notes: app.notes,
       createdAt: app.createdAt,
       updatedAt: app.updatedAt,

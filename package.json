@@ -50,7 +50,9 @@
     "@nestjs/jwt": "^10.2.0",
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/platform-socket.io": "^11.1.19",
     "@nestjs/swagger": "^8.0.3",
+    "@nestjs/websockets": "^11.1.19",
     "@prisma/client": "^6.1.0",
     "@types/pdfkit": "^0.17.4",
     "axios": "^1.13.2",
@@ -73,6 +75,7 @@
     "react-dom": "^19.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "socket.io": "^4.8.3",
     "winston": "^3.18.3"
   },
   "devDependencies": {
@@ -134,7 +137,7 @@
   },
   "lint-staged": {
     "*.{ts,tsx}": [
-      "eslint --fix --max-warnings=0"
+      "eslint --fix --max-warnings=0 --no-warn-ignored"
     ],
     "*.{json,md}": [
       "prettier --write"

@@ -1,122 +1,117 @@
-# Time Cafe - Shared Service
+# Backend Shared
 
-Общий сервис для управления системой Time Cafe. Включает в себя API для мобильного приложения и Next.js фронтенд для административных панелей.
+Единый backend API для админки и мобильного приложения Time Caffe.
 
-## Технологии
+## Что это за сервис
 
-- NestJS - Backend фреймворк
-- Next.js - Frontend фреймворк
-- Prisma - ORM для работы с БД
-- PostgreSQL - База данных
-- Swagger - Документация API
+`backend-shared` отвечает за:
 
-## Установка
+- аутентификацию и авторизацию через Keycloak;
+- доменную бизнес-логику (бренды, кофейни, пользователи, работники, бронирования, заказы);
+- файловое хранилище (S3/MinIO, signed URLs);
+- чат заказа (HTTP API + Socket.IO realtime);
+- role-specific API для `SYSTEM_ADMIN`, `BRAND_ADMIN`, `CAFE_ADMIN`, `WORKER`, `USER`.
+
+## Технологический стек
+
+- NestJS
+- Prisma + PostgreSQL
+- Keycloak
+- Socket.IO
+- MinIO (S3-compatible)
+- Swagger
+
+## Архитектура по слоям
+
+- **Controllers**: HTTP endpoints и DTO boundary
+- **Services**: бизнес-правила и orchestration
+- **Prisma layer**: доступ к БД
+- **Gateway layer**: realtime-события (`/order-chats`)
+- **Storage layer**: upload/download/signed URL
+
+Ключевые модули:
+
+- `auth`
+- `users`, `workers`
+- `brands`, `cafes`
+- `appointments`, `orders`
+- `order-chat`
+- `storage`
+- `system-admin`, `brand-admin`, `cafe-admin`, `cafe-worker`
+
+## Быстрый запуск (dev)
+
+1. Установить зависимости:
 
 ```bash
 npm install
 ```
 
-## Настройка
+2. Подготовить `.env` и поднять внешние зависимости (PostgreSQL, Keycloak, MinIO).
 
-Создайте файл `.env` на основе `.env.example`:
-
-```bash
-cp .env.example .env
-```
-
-Заполните необходимые переменные окружения.
-
-### Запуск зависимостей (Docker)
-
-Перед запуском приложения необходимо запустить зависимости:
+3. Сгенерировать Prisma client и применить миграции:
 
 ```bash
-# Запуск PostgreSQL, Keycloak и MinIO
-docker-compose up -d
-
-# Или только MinIO (для тестов)
-docker-compose up -d minio
-```
-
-**Важно:** Для работы тестов необходимо, чтобы MinIO был запущен. Тесты используют реальный экземпляр MinIO (не мок).
-
-## Запуск
-
-### Разработка
-
-Запуск API и Frontend одновременно:
-
-```bash
-npm run start:dev
-```
-
-Или раздельно:
-
-```bash
-# API на порту 3000
-npm run start:api
-
-# Frontend на порту 3000
-npm run start:frontend
-```
-
-### Production
-
-```bash
-npm run build
-npm run start:prod
-```
-
-## Prisma команды
-
-```bash
-# Генерация Prisma Client
 npm run prisma:generate
-
-# Создание миграции
-npm run prisma:migrate
-
-# Prisma Studio (GUI для БД)
-npm run prisma:studio
-
-# Применение миграций в production
 npm run prisma:deploy
 ```
 
-## API Документация
+4. Запустить API:
 
-После запуска сервера документация Swagger доступна по адресу:
+```bash
+npm run start:api
+```
 
-- http://localhost:3000/api/docs
+Swagger:
 
-## Структура модулей
+- `http://localhost:3000/api/docs`
 
-- `auth` - Аутентификация и авторизация (токены, логин, обновление)
-- `users` - Управление пользователями (клиентами)
-- `workers` - Управление работниками (администраторы, сотрудники)
-- `brands` - Управление брендами
-- `cafes` - Управление кофейнями
-- `system-admin` - Функционал системного администратора
-- `brand-admin` - Функционал администратора бренда
+## Ключевая логика order-chat
 
-## Документация
+- Чат привязан к заказу (`orderId`), есть fallback-вход из booking.
+- Отправка сообщения доступна через HTTP и WS, realtime-рассылка выполняется сервером.
+- Вложения:
+  - upload в storage;
+  - mime/size validation;
+  - защита от чужих attachment IDs;
+  - signed URL для выдачи;
+  - обработка mobile-friendly endpoint (чтобы не отдавать `localhost` на устройство).
+- Роутинг unread/list updates выполняется по серверным правилам (`ALL/ROLE/SPECIFIC`).
 
-Вся документация находится в папке `docs/`:
+Подробнее:
 
-- `PROGRESS.md` - текущий прогресс разработки
-- `API_ENDPOINTS.md` - описание всех API эндпоинтов
-- `USERS.md` - описание User и WorkerAccount
-- `ARCHITECTURE.md` - архитектура проекта
-- `KEYCLOAK.md` - настройка Keycloak
-- `STORAGE.md` - настройка MinIO и работа с файловым хранилищем
+- `docs/CHAT_MODULE.md`
 
-Цели:
-реализовать систему аутентификации и авторизации для всех ролей пользователей;
-разработать мобильное приложение для клиентов с функционалом бронирования и управления балансом;
-разработать веб-панель для работников кофейни с возможностью сканирования QR-кодов и подтверждения бронирований;
-разработать веб-панель для администраторов кофейни с функционалом управления работниками и просмотра отчетов;
-разработать веб-панель для системных администраторов с возможностью управления брендами и создания кофеен;
-реализовать систему управления бронированиями с генерацией QR-кодов;
-обеспечить интеграцию с платежными системами для пополнения баланса;
-реализовать систему отзывов и рейтингов кофеен;
-обеспечить возможность просмотра статистики и генерации отчетов
+## Качество и проверки
+
+Основные команды:
+
+```bash
+# Build
+npm run build:api
+
+# Tests
+npm run test
+
+# Prisma
+npm run prisma:generate
+npm run prisma:migrate
+npm run prisma:deploy
+npm run prisma:studio
+```
+
+Минимальная проверка перед QA:
+
+- `npm run build:api`
+- smoke-проверка auth (`/auth/me`, `/auth/refresh`)
+- smoke-проверка chat HTTP + WS
+- smoke-проверка upload и signed URL
+
+## Где читать детали
+
+- `docs/ARCHITECTURE.md` — общая архитектура
+- `docs/API_ENDPOINTS.md` — обзор API
+- `docs/KEYCLOAK.md` — auth и токены
+- `docs/STORAGE.md` — storage и signed URLs
+- `docs/CHAT_MODULE.md` — внутренняя реализация чата
+- `docs/AUTH_LOGIN_FLOW.md` — детали login/refresh сценария
