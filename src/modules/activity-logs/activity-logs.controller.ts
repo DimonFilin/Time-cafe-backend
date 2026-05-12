@@ -21,7 +21,13 @@ import { ActivityLogsService } from './activity-logs.service';
 import { WorkersService } from '../workers/workers.service';
 import { ActivityLogFiltersDto } from './dto/activity-log-filters.dto';
 import { CreateActivityLogRequestDto } from './dto/create-activity-log-request.dto';
-import { WorkerRole, LogSeverity, Prisma } from '@prisma/client';
+import {
+  WorkerRole,
+  LogSeverity,
+  Prisma,
+  ActivityAction,
+  ActivityCategory,
+} from '@prisma/client';
 
 @ApiTags('Activity Logs')
 @Controller('activity-logs')
@@ -122,13 +128,24 @@ export class ActivityLogsController {
         .find((p) => p.startsWith('tc_account_id='))
         ?.split('=')[1];
 
-    // Применяем фильтры на основе роли пользователя
-    const enhancedFilters = await this.applyRoleBasedFilters(
-      filters,
-      req.user?.sub,
-      accountId,
-    );
-    return this.activityLogsService.getLogs(enhancedFilters);
+    const worker = await this.resolveWorkerForLogs(req.user?.sub, accountId);
+    const enhancedFilters = this.mergeRoleScopedFilters(worker, filters);
+    const data = await this.activityLogsService.getLogs(enhancedFilters);
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: ActivityAction.VIEW_LIST,
+      category: ActivityCategory.VIEW,
+      resourceType: 'ACTIVITY_LOG',
+      details: {
+        page: enhancedFilters.page,
+        limit: enhancedFilters.limit,
+      },
+    });
+    return data;
   }
 
   @Get('statistics')
@@ -158,19 +175,32 @@ export class ActivityLogsController {
         .find((p) => p.startsWith('tc_account_id='))
         ?.split('=')[1];
 
-    const enhancedFilters = await this.applyRoleBasedFilters(
-      filters,
-      req.user?.sub,
-      accountId,
-    );
-    return this.activityLogsService.getStatistics(enhancedFilters);
+    const worker = await this.resolveWorkerForLogs(req.user?.sub, accountId);
+    const enhancedFilters = this.mergeRoleScopedFilters(worker, filters);
+    const data = await this.activityLogsService.getStatistics(enhancedFilters);
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: ActivityAction.VIEW_REPORT,
+      category: ActivityCategory.VIEW,
+      resourceType: 'ACTIVITY_LOG',
+      details: {
+        page: enhancedFilters.page,
+        limit: enhancedFilters.limit,
+      },
+    });
+    return data;
   }
 
-  private async applyRoleBasedFilters(
-    filters: ActivityLogFiltersDto,
+  private async resolveWorkerForLogs(
     keycloakId?: string,
     accountId?: string,
-  ): Promise<ActivityLogFiltersDto> {
+  ): Promise<
+    NonNullable<Awaited<ReturnType<typeof this.workersService.findById>>>
+  > {
     if (!keycloakId) {
       throw new BadRequestException('User not authenticated');
     }
@@ -194,14 +224,24 @@ export class ActivityLogsController {
       throw new BadRequestException('Worker account not found');
     }
 
+    return worker;
+  }
+
+  private mergeRoleScopedFilters(
+    worker: NonNullable<
+      Awaited<ReturnType<typeof this.workersService.findById>>
+    >,
+    filters: ActivityLogFiltersDto,
+  ): ActivityLogFiltersDto {
+    const merged = { ...filters };
     if (worker.role === WorkerRole.BRAND_ADMIN && worker.brandId) {
-      filters.brandId = worker.brandId;
+      merged.brandId = worker.brandId;
     }
 
     if (worker.role === WorkerRole.CAFE_ADMIN && worker.cafeId) {
-      filters.cafeId = worker.cafeId;
+      merged.cafeId = worker.cafeId;
     }
 
-    return filters;
+    return merged;
   }
 }

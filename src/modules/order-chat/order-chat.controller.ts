@@ -93,7 +93,11 @@ export class OrderChatController {
   }
 
   @Post(':chatId/uploads')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
   @ApiOperation({ summary: 'Upload chat image attachment' })
   async upload(
     @Req() req: { user?: { sub?: string } },

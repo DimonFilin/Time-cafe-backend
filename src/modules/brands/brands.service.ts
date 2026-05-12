@@ -6,7 +6,14 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { Prisma, BrandStatus, DocumentType, WorkerRole } from '@prisma/client';
+import {
+  Prisma,
+  BrandStatus,
+  DocumentType,
+  WorkerRole,
+  ActivityAction,
+  ActivityCategory,
+} from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
@@ -15,8 +22,6 @@ import { StorageService } from '../storage/storage.service';
 import { DocumentResponseDto } from './dto/document-response.dto';
 import { FileValidator } from '../storage/utils/file-validator';
 import { WorkersService } from '../workers/workers.service';
-import { ApiKeyResponseDto } from './dto/api-key-response.dto';
-import { CreateApiKeyResponseDto } from './dto/create-api-key-response.dto';
 import { CafeResponseDto } from '../cafes/dto/cafe-response.dto';
 import { BrandStatsDto } from './dto/brand-stats.dto';
 import { BrandReportDto } from './dto/brand-report.dto';
@@ -24,7 +29,7 @@ import {
   BrandOrdersAnalyticsDto,
   BrandPopularItemsDto,
 } from './dto/brand-analytics.dto';
-import * as crypto from 'crypto';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 
 @Injectable()
 export class BrandsService {
@@ -34,6 +39,7 @@ export class BrandsService {
     private readonly prisma: PrismaService,
     private readonly storageService: StorageService,
     private readonly workersService: WorkersService,
+    private readonly activityLogsService: ActivityLogsService,
   ) {}
 
   private getClientEndpoint(params?: {
@@ -110,6 +116,32 @@ export class BrandsService {
     };
   }
 
+  private async logWorkerByKeycloak(
+    keycloakId: string,
+    params: {
+      action: ActivityAction;
+      category: ActivityCategory;
+      resourceType?: string;
+      resourceId?: string;
+      details?: Prisma.InputJsonValue;
+    },
+  ): Promise<void> {
+    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    if (!worker) return;
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: params.action,
+      category: params.category,
+      resourceType: params.resourceType,
+      resourceId: params.resourceId,
+      details: params.details,
+    });
+  }
+
   /**
    * Create brand (SYSTEM_ADMIN only)
    */
@@ -150,6 +182,18 @@ export class BrandsService {
     });
 
     this.logger.log(`Brand created: ${brand.id} (${brand.name})`);
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: ActivityAction.CREATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'BRAND',
+      resourceId: brand.id,
+      details: { name: brand.name },
+    });
     return this.mapToResponseDto(brand);
   }
 
@@ -239,6 +283,12 @@ export class BrandsService {
     });
 
     this.logger.log(`Brand updated: ${id}`);
+    await this.logWorkerByKeycloak(keycloakId, {
+      action: ActivityAction.UPDATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'BRAND',
+      resourceId: id,
+    });
     return this.mapToResponseDto(updatedBrand);
   }
 
@@ -269,6 +319,17 @@ export class BrandsService {
     });
 
     this.logger.log(`Brand deleted (soft): ${id}`);
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: ActivityAction.DELETE,
+      category: ActivityCategory.DATA,
+      resourceType: 'BRAND',
+      resourceId: id,
+    });
   }
 
   /**
@@ -339,6 +400,13 @@ export class BrandsService {
     });
 
     this.logger.log(`Document uploaded for brand ${brandId}: ${document.id}`);
+    await this.logWorkerByKeycloak(keycloakId, {
+      action: ActivityAction.FILE_UPLOAD,
+      category: ActivityCategory.DATA,
+      resourceType: 'BRAND_DOCUMENT',
+      resourceId: document.id,
+      details: { brandId, documentType: type },
+    });
     return this.mapDocumentToResponseDto(document);
   }
 
@@ -433,6 +501,18 @@ export class BrandsService {
     });
 
     this.logger.log(`Document verified: ${documentId} by worker ${worker.id}`);
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: ActivityAction.UPDATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'BRAND_DOCUMENT',
+      resourceId: documentId,
+      details: { brandId, verified: true },
+    });
     return this.mapDocumentToResponseDto(updatedDocument);
   }
 
@@ -529,6 +609,18 @@ export class BrandsService {
     this.logger.log(
       `Brand verified and activated: ${brandId} by worker ${worker.id}`,
     );
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: ActivityAction.UPDATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'BRAND',
+      resourceId: brandId,
+      details: { verified: true, status: BrandStatus.ACTIVE },
+    });
     return this.mapToResponseDto(updatedBrand);
   }
 
@@ -575,6 +667,18 @@ export class BrandsService {
     });
 
     this.logger.log(`Brand rejected: ${brandId} by worker ${worker.id}`);
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: ActivityAction.UPDATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'BRAND',
+      resourceId: brandId,
+      details: { status: BrandStatus.REJECTED, reason },
+    });
     return this.mapToResponseDto(updatedBrand);
   }
 
@@ -620,6 +724,18 @@ export class BrandsService {
     });
 
     this.logger.log(`Brand suspended: ${brandId} by worker ${worker.id}`);
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: ActivityAction.UPDATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'BRAND',
+      resourceId: brandId,
+      details: { status: BrandStatus.SUSPENDED, reason },
+    });
     return this.mapToResponseDto(updatedBrand);
   }
 
@@ -703,6 +819,12 @@ export class BrandsService {
     });
 
     this.logger.log(`Brand customization updated: ${brandId}`);
+    await this.logWorkerByKeycloak(keycloakId, {
+      action: ActivityAction.UPDATE_SETTINGS,
+      category: ActivityCategory.CONFIG,
+      resourceType: 'BRAND',
+      resourceId: brandId,
+    });
     return this.mapToResponseDto(updatedBrand);
   }
 
@@ -774,6 +896,12 @@ export class BrandsService {
     });
 
     this.logger.log(`Logo uploaded for brand ${brandId}`);
+    await this.logWorkerByKeycloak(keycloakId, {
+      action: ActivityAction.FILE_UPLOAD,
+      category: ActivityCategory.CONFIG,
+      resourceType: 'BRAND_LOGO',
+      resourceId: brandId,
+    });
     return this.mapToResponseDto(updatedBrand);
   }
 
@@ -845,285 +973,23 @@ export class BrandsService {
     });
 
     this.logger.log(`Banner uploaded for brand ${brandId}`);
+    await this.logWorkerByKeycloak(keycloakId, {
+      action: ActivityAction.FILE_UPLOAD,
+      category: ActivityCategory.CONFIG,
+      resourceType: 'BRAND_BANNER',
+      resourceId: brandId,
+    });
     return this.mapToResponseDto(updatedBrand);
-  }
-
-  /**
-   * Generate API key
-   */
-  private generateApiKey(): string {
-    const randomBytes = crypto.randomBytes(32);
-    const randomPart = randomBytes.toString('base64url').substring(0, 32);
-    return `tc_live_${randomPart}`;
-  }
-
-  /**
-   * Hash API key with SHA-256
-   */
-  private hashApiKey(key: string): string {
-    return crypto.createHash('sha256').update(key).digest('hex');
-  }
-
-  /**
-   * Get prefix from API key (first 11 characters: "tc_live_xxx")
-   */
-  private getKeyPrefix(key: string): string {
-    return key.substring(0, 11); // "tc_live_" + 3 chars
-  }
-
-  /**
-   * Create API key for brand
-   */
-  async createApiKey(
-    brandId: string,
-    keycloakId: string,
-    name: string,
-    permissions: string[],
-    expiresAt?: Date,
-  ): Promise<CreateApiKeyResponseDto> {
-    const brand = await this.prisma.brand.findFirst({
-      where: {
-        id: brandId,
-        deletedAt: null,
-      } as Prisma.BrandWhereInput,
-    });
-
-    if (!brand) {
-      throw new NotFoundException(`Brand with ID ${brandId} not found`);
-    }
-
-    await this.checkBrandAccess(brandId, keycloakId);
-
-    // Generate unique API key
-    let apiKey: string | undefined;
-    let keyHash: string | undefined;
-    let attempts = 0;
-    const maxAttempts = 10;
-    let isUnique = false;
-
-    while (!isUnique && attempts < maxAttempts) {
-      apiKey = this.generateApiKey();
-      keyHash = this.hashApiKey(apiKey);
-      const existing = await this.prisma.brandApiKey.findUnique({
-        where: { keyHash },
-      });
-      if (!existing) {
-        isUnique = true;
-      } else {
-        attempts++;
-      }
-    }
-
-    if (!isUnique || !apiKey || !keyHash) {
-      throw new BadRequestException('Failed to generate unique API key');
-    }
-
-    const prefix = this.getKeyPrefix(apiKey);
-
-    // Create API key record
-    const apiKeyRecord = await this.prisma.brandApiKey.create({
-      data: {
-        brandId,
-        name,
-        keyHash,
-        prefix,
-        permissions,
-        expiresAt: expiresAt || null,
-        isActive: true,
-      },
-    });
-
-    this.logger.log(`API key created for brand ${brandId}: ${apiKeyRecord.id}`);
-
-    return {
-      ...this.mapApiKeyToResponseDto(apiKeyRecord),
-      key: apiKey, // Show full key only once
-    };
-  }
-
-  /**
-   * Get all API keys for brand
-   */
-  async getBrandApiKeys(
-    brandId: string,
-    keycloakId: string,
-  ): Promise<ApiKeyResponseDto[]> {
-    const brand = await this.prisma.brand.findFirst({
-      where: {
-        id: brandId,
-        deletedAt: null,
-      } as Prisma.BrandWhereInput,
-    });
-
-    if (!brand) {
-      throw new NotFoundException(`Brand with ID ${brandId} not found`);
-    }
-
-    await this.checkBrandAccess(brandId, keycloakId);
-
-    const apiKeys = await this.prisma.brandApiKey.findMany({
-      where: {
-        brandId,
-        deletedAt: null,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    return apiKeys.map((key) => this.mapApiKeyToResponseDto(key));
-  }
-
-  /**
-   * Update API key
-   */
-  async updateApiKey(
-    brandId: string,
-    keyId: string,
-    keycloakId: string,
-    updateDto: {
-      name?: string;
-      permissions?: string[];
-      isActive?: boolean;
-      expiresAt?: Date | null;
-    },
-  ): Promise<ApiKeyResponseDto> {
-    const apiKey = await this.prisma.brandApiKey.findFirst({
-      where: {
-        id: keyId,
-        brandId,
-        deletedAt: null,
-      },
-    });
-
-    if (!apiKey) {
-      throw new NotFoundException(
-        `API key with ID ${keyId} not found for brand ${brandId}`,
-      );
-    }
-
-    await this.checkBrandAccess(brandId, keycloakId);
-
-    const updatedApiKey = await this.prisma.brandApiKey.update({
-      where: { id: keyId },
-      data: {
-        ...(updateDto.name && { name: updateDto.name }),
-        ...(updateDto.permissions && { permissions: updateDto.permissions }),
-        ...(updateDto.isActive !== undefined && {
-          isActive: updateDto.isActive,
-        }),
-        ...(updateDto.expiresAt !== undefined && {
-          expiresAt: updateDto.expiresAt,
-        }),
-      },
-    });
-
-    this.logger.log(`API key updated: ${keyId}`);
-    return this.mapApiKeyToResponseDto(updatedApiKey);
-  }
-
-  /**
-   * Delete (revoke) API key
-   */
-  async deleteApiKey(
-    brandId: string,
-    keyId: string,
-    keycloakId: string,
-  ): Promise<void> {
-    const apiKey = await this.prisma.brandApiKey.findFirst({
-      where: {
-        id: keyId,
-        brandId,
-        deletedAt: null,
-      },
-    });
-
-    if (!apiKey) {
-      throw new NotFoundException(
-        `API key with ID ${keyId} not found for brand ${brandId}`,
-      );
-    }
-
-    await this.checkBrandAccess(brandId, keycloakId);
-
-    await this.prisma.brandApiKey.update({
-      where: { id: keyId },
-      data: { deletedAt: new Date(), isActive: false },
-    });
-
-    this.logger.log(`API key revoked: ${keyId}`);
-  }
-
-  /**
-   * Validate API key and return brand ID
-   */
-  async validateApiKey(apiKey: string): Promise<{
-    brandId: string;
-    permissions: string[];
-    apiKeyId: string;
-  } | null> {
-    const keyHash = this.hashApiKey(apiKey);
-    const apiKeyRecord = await this.prisma.brandApiKey.findUnique({
-      where: { keyHash },
-    });
-
-    if (!apiKeyRecord) {
-      return null;
-    }
-
-    // Check if key is active and not deleted
-    if (!apiKeyRecord.isActive || apiKeyRecord.deletedAt) {
-      return null;
-    }
-
-    // Check expiration
-    if (apiKeyRecord.expiresAt && apiKeyRecord.expiresAt < new Date()) {
-      return null;
-    }
-
-    // Update last used timestamp
-    await this.prisma.brandApiKey.update({
-      where: { id: apiKeyRecord.id },
-      data: { lastUsedAt: new Date() },
-    });
-
-    return {
-      brandId: apiKeyRecord.brandId,
-      permissions: apiKeyRecord.permissions,
-      apiKeyId: apiKeyRecord.id,
-    };
-  }
-
-  /**
-   * Map Prisma BrandApiKey to response DTO
-   */
-  private mapApiKeyToResponseDto(apiKey: {
-    id: string;
-    brandId: string;
-    name: string;
-    prefix: string;
-    permissions: string[];
-    isActive: boolean;
-    lastUsedAt?: Date | null;
-    expiresAt?: Date | null;
-    createdAt: Date;
-    updatedAt: Date;
-  }): ApiKeyResponseDto {
-    return {
-      id: apiKey.id,
-      name: apiKey.name,
-      prefix: apiKey.prefix,
-      permissions: apiKey.permissions,
-      isActive: apiKey.isActive,
-      lastUsedAt: apiKey.lastUsedAt || undefined,
-      expiresAt: apiKey.expiresAt || undefined,
-      createdAt: apiKey.createdAt,
-      updatedAt: apiKey.updatedAt,
-    };
   }
 
   /**
    * Delete document
    */
-  async deleteDocument(brandId: string, documentId: string): Promise<void> {
+  async deleteDocument(
+    brandId: string,
+    documentId: string,
+    keycloakId: string,
+  ): Promise<void> {
     const document = await this.prisma.brandDocument.findFirst({
       where: {
         id: documentId,
@@ -1136,6 +1002,8 @@ export class BrandsService {
         `Document with ID ${documentId} not found for brand ${brandId}`,
       );
     }
+
+    await this.checkBrandAccess(brandId, keycloakId);
 
     // Extract path from URL for deletion
     // URL format: http://localhost:9000/brands/{brandId}/documents/{filename}
@@ -1162,6 +1030,13 @@ export class BrandsService {
     });
 
     this.logger.log(`Document deleted: ${documentId}`);
+    await this.logWorkerByKeycloak(keycloakId, {
+      action: ActivityAction.FILE_DELETE,
+      category: ActivityCategory.DATA,
+      resourceType: 'BRAND_DOCUMENT',
+      resourceId: documentId,
+      details: { brandId },
+    });
   }
 
   /**
@@ -1407,12 +1282,14 @@ export class BrandsService {
   }
 
   /**
-   * Get brand ID for BRAND_ADMIN
+   * Resolve authenticated BRAND_ADMIN worker (supports tc_account_id selection).
    */
-  private async getBrandAdminBrandId(
+  private async resolveBrandAdminWorker(
     keycloakId: string,
     accountId?: string,
-  ): Promise<string> {
+  ): Promise<
+    NonNullable<Awaited<ReturnType<typeof this.workersService.findById>>>
+  > {
     let worker: Awaited<
       ReturnType<typeof this.workersService.findById>
     > | null = null;
@@ -1440,7 +1317,38 @@ export class BrandsService {
       throw new NotFoundException('BRAND_ADMIN is not assigned to any brand');
     }
 
-    return worker.brandId;
+    return worker;
+  }
+
+  /**
+   * Get brand ID for BRAND_ADMIN
+   */
+  private async getBrandAdminBrandId(
+    keycloakId: string,
+    accountId?: string,
+  ): Promise<string> {
+    const worker = await this.resolveBrandAdminWorker(keycloakId, accountId);
+    return worker.brandId!;
+  }
+
+  async logMyBrandReportExport(
+    keycloakId: string,
+    accountId: string | undefined,
+    format: string,
+  ): Promise<void> {
+    const worker = await this.resolveBrandAdminWorker(keycloakId, accountId);
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: ActivityAction.EXPORT_DATA,
+      category: ActivityCategory.DATA,
+      resourceType: 'BRAND_REPORT',
+      resourceId: worker.brandId!,
+      details: { format },
+    });
   }
 
   /**

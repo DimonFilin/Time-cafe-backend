@@ -21,10 +21,16 @@ import {
 import { AuthGuard } from 'nest-keycloak-connect';
 import { TransactionsService } from './services/transactions.service';
 import { WorkersService } from '../workers/workers.service';
-import { WorkerRole, Transaction } from '@prisma/client';
+import {
+  WorkerRole,
+  Transaction,
+  ActivityAction,
+  ActivityCategory,
+} from '@prisma/client';
 import { AdminTransactionListQueryDto } from './dto/admin-transaction-list-query.dto';
 import { AdminTransactionListResponseDto } from './dto/admin-transaction-list-response.dto';
 import { TransactionResponseDto } from './dto/transaction-response.dto';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 
 @ApiTags('Admin Transactions')
 @Controller('admin/transactions')
@@ -32,6 +38,7 @@ export class AdminTransactionsController {
   constructor(
     private readonly transactionsService: TransactionsService,
     private readonly workersService: WorkersService,
+    private readonly activityLogsService: ActivityLogsService,
   ) {}
 
   @Get()
@@ -63,6 +70,17 @@ export class AdminTransactionsController {
     }
 
     const result = await this.transactionsService.findAllAdmin(query);
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: ActivityAction.VIEW_LIST,
+      category: ActivityCategory.VIEW,
+      resourceType: 'TRANSACTION',
+      details: { page: result.page, limit: result.limit },
+    });
     return {
       items: result.items.map((t) => this.mapTransactionToDto(t)),
       total: result.total,
@@ -105,6 +123,18 @@ export class AdminTransactionsController {
     if (!transaction) {
       throw new BadRequestException('Transaction not found');
     }
+
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: ActivityAction.VIEW_DETAIL,
+      category: ActivityCategory.VIEW,
+      resourceType: 'TRANSACTION',
+      resourceId: id,
+    });
 
     return this.mapTransactionToDto(transaction);
   }
@@ -153,6 +183,19 @@ export class AdminTransactionsController {
     if (!transaction) {
       throw new BadRequestException('Refund transaction not found');
     }
+
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: ActivityAction.PAYMENT_PROCESS,
+      category: ActivityCategory.FINANCIAL,
+      resourceType: 'TRANSACTION',
+      resourceId: transaction.id,
+      details: { originalTransactionId: id, refund: true },
+    });
 
     return this.mapTransactionToDto(transaction);
   }

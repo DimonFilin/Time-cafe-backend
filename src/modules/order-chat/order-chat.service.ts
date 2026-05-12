@@ -4,9 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { networkInterfaces } from 'node:os';
 import {
+  ActivityAction,
+  ActivityCategory,
   ChatAttachmentStatus,
   ChatAuthorType,
   ChatMessageType,
@@ -16,6 +16,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import {
   ChatListQueryDto,
   ChatMessageDto,
@@ -31,6 +32,7 @@ type Actor =
       kind: 'worker';
       id: string;
       keycloakId: string;
+      email: string;
       role: WorkerRole;
       cafeId: string | null;
       brandId: string | null;
@@ -41,65 +43,68 @@ export class OrderChatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storageService: StorageService,
-    private readonly configService: ConfigService,
+    private readonly activityLogsService: ActivityLogsService,
   ) {}
+
+  private async logWorkerActivity(
+    actor: Actor,
+    params: {
+      action: ActivityAction;
+      category: ActivityCategory;
+      resourceType?: string;
+      resourceId?: string;
+      details?: Prisma.InputJsonValue;
+    },
+  ): Promise<void> {
+    if (actor.kind !== 'worker') return;
+    await this.activityLogsService.log({
+      workerId: actor.id,
+      workerEmail: actor.email,
+      workerRole: actor.role,
+      brandId: actor.brandId ?? undefined,
+      cafeId: actor.cafeId ?? undefined,
+      action: params.action,
+      category: params.category,
+      resourceType: params.resourceType ?? 'ORDER_CHAT',
+      resourceId: params.resourceId,
+      details: params.details,
+    });
+  }
 
   private async resolveAttachmentUrl(
     bucket: string,
     path: string,
   ): Promise<string> {
-    const configuredPublicEndpoint =
-      this.configService.get<string>('BACKEND_FILE_SYSTEM_URL') ||
-      this.configService.get<string>('BACKEND_FILE_SYSTEM') ||
-      this.configService.get<string>('STORAGE_PUBLIC_ENDPOINT');
-    const storageEndpoint = this.configService.get<string>('STORAGE_ENDPOINT');
-
-    const candidateEndpoints: string[] = [];
-    if (configuredPublicEndpoint)
-      candidateEndpoints.push(configuredPublicEndpoint);
-    if (storageEndpoint && !/localhost|127\.0\.0\.1/i.test(storageEndpoint)) {
-      candidateEndpoints.push(storageEndpoint);
-    }
-
-    // Dev fallback: if storage endpoint is localhost, try replacing host with LAN IP
-    // so mobile devices on the same network can resolve attachment URLs.
-    if (storageEndpoint && /localhost|127\.0\.0\.1/i.test(storageEndpoint)) {
-      try {
-        const parsed = new URL(storageEndpoint);
-        const nets = networkInterfaces();
-        const lanIp = Object.values(nets)
-          .flat()
-          .find(
-            (item) =>
-              item &&
-              item.family === 'IPv4' &&
-              !item.internal &&
-              /^(10\.|172\.(1[6-9]|2\d|3[0-1])\.|192\.168\.)/.test(
-                item.address,
-              ),
-          )?.address;
-        if (lanIp) {
-          candidateEndpoints.push(
-            `${parsed.protocol}//${lanIp}:${parsed.port || '9000'}`,
-          );
-        }
-      } catch {
-        // Ignore invalid storage endpoint format.
-      }
-    }
-
-    for (const endpoint of candidateEndpoints) {
-      try {
-        return await this.storageService.getFileUrlForEndpoint(
-          bucket,
-          path,
-          endpoint,
-        );
-      } catch {
-        // try next endpoint
-      }
-    }
+    // Presigned host выбирается в StorageService (STORAGE_PUBLIC_ENDPOINT / BACKEND_FILE_SYSTEM_* / LAN при localhost).
     return this.storageService.getFileUrl(bucket, path);
+  }
+
+  private parseStorageRef(
+    input: string,
+  ): { bucket: string; key: string } | null {
+    const raw = String(input || '').trim();
+    if (!raw) return null;
+    const direct = raw.match(/^(users|public|brands|cafes)\/(.+)$/);
+    if (direct) return { bucket: direct[1], key: direct[2] };
+    const urlMatch = raw.match(/\/(users|public|brands|cafes)\/(.+)$/);
+    if (urlMatch)
+      return { bucket: urlMatch[1], key: decodeURIComponent(urlMatch[2]) };
+    return null;
+  }
+
+  private async resolveUserAvatarUrl(
+    avatar: string | null,
+  ): Promise<string | null> {
+    if (!avatar) return null;
+    const ref = this.parseStorageRef(avatar);
+    if (!ref) {
+      return /^https?:\/\//i.test(avatar) ? avatar : null;
+    }
+    try {
+      return await this.resolveAttachmentUrl(ref.bucket, ref.key);
+    } catch {
+      return null;
+    }
   }
 
   async resolveActorByKeycloakId(keycloakId: string): Promise<Actor> {
@@ -111,6 +116,7 @@ export class OrderChatService {
       select: {
         id: true,
         keycloakId: true,
+        email: true,
         role: true,
         cafeId: true,
         brandId: true,
@@ -121,6 +127,7 @@ export class OrderChatService {
         kind: 'worker',
         id: worker.id,
         keycloakId: worker.keycloakId,
+        email: worker.email,
         role: worker.role,
         cafeId: worker.cafeId,
         brandId: worker.brandId,
@@ -272,6 +279,35 @@ export class OrderChatService {
       where: { id: orderId },
       include: {
         cafe: { select: { id: true, brandId: true, chatSettings: true } },
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            avatar: true,
+          },
+        },
+        appointment: {
+          select: {
+            id: true,
+            dateTime: true,
+            duration: true,
+            status: true,
+            notes: true,
+            orders: {
+              select: {
+                id: true,
+                orderNumber: true,
+                status: true,
+                totalAmount: true,
+                createdAt: true,
+              },
+              orderBy: { createdAt: 'desc' },
+            },
+          },
+        },
       },
     });
     if (!order) {
@@ -281,6 +317,35 @@ export class OrderChatService {
         orderBy: { createdAt: 'desc' },
         include: {
           cafe: { select: { id: true, brandId: true, chatSettings: true } },
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phone: true,
+              avatar: true,
+            },
+          },
+          appointment: {
+            select: {
+              id: true,
+              dateTime: true,
+              duration: true,
+              status: true,
+              notes: true,
+              orders: {
+                select: {
+                  id: true,
+                  orderNumber: true,
+                  status: true,
+                  totalAmount: true,
+                  createdAt: true,
+                },
+                orderBy: { createdAt: 'desc' },
+              },
+            },
+          },
         },
       });
     }
@@ -355,6 +420,14 @@ export class OrderChatService {
       }
     }
 
+    const avatarUrl = await this.resolveUserAvatarUrl(order.user.avatar);
+    await this.logWorkerActivity(actor, {
+      action: ActivityAction.VIEW_DETAIL,
+      category: ActivityCategory.VIEW,
+      resourceType: 'ORDER_CHAT',
+      resourceId: chat.id,
+      details: { orderId: order.id },
+    });
     return {
       id: chat.id,
       orderId: chat.orderId,
@@ -364,6 +437,38 @@ export class OrderChatService {
       notificationMode: chat.notificationMode,
       unreadCount: 0,
       updatedAt: chat.updatedAt,
+      user: {
+        id: order.user.id,
+        firstName: order.user.firstName,
+        lastName: order.user.lastName,
+        email: order.user.email,
+        phone: order.user.phone,
+        avatarUrl,
+      },
+      order: {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        totalAmount: order.totalAmount ? String(order.totalAmount) : null,
+        createdAt: order.createdAt,
+        appointmentId: order.appointmentId,
+      },
+      appointment: order.appointment
+        ? {
+            id: order.appointment.id,
+            dateTime: order.appointment.dateTime,
+            duration: order.appointment.duration,
+            status: order.appointment.status,
+            notes: order.appointment.notes,
+            orders: order.appointment.orders.map((o) => ({
+              id: o.id,
+              orderNumber: o.orderNumber,
+              status: o.status,
+              totalAmount: o.totalAmount ? String(o.totalAmount) : null,
+              createdAt: o.createdAt,
+            })),
+          }
+        : null,
       lastMessage: chat.messages[0]
         ? await this.toMessageDto(chat.messages[0])
         : null,
@@ -432,29 +537,120 @@ export class OrderChatService {
           },
           readStates: { where: readWhere, take: 1 },
           cafe: { select: { chatSettings: true } },
+          order: {
+            select: {
+              id: true,
+              orderNumber: true,
+              status: true,
+              totalAmount: true,
+              createdAt: true,
+              appointmentId: true,
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  phone: true,
+                  avatar: true,
+                },
+              },
+              appointment: {
+                select: {
+                  id: true,
+                  dateTime: true,
+                  duration: true,
+                  status: true,
+                  notes: true,
+                  orders: {
+                    select: {
+                      id: true,
+                      orderNumber: true,
+                      status: true,
+                      totalAmount: true,
+                      createdAt: true,
+                    },
+                    orderBy: { createdAt: 'desc' },
+                  },
+                },
+              },
+            },
+          },
         },
       }),
       this.prisma.orderChat.count({ where }),
     ]);
 
     const mapped: ChatSummaryDto[] = await Promise.all(
-      items.map(async (chat) => ({
-        id: chat.id,
-        orderId: chat.orderId,
-        cafeId: chat.cafeId,
-        userId: chat.userId,
-        isEnabled: this.resolveCafeChatEnabled(chat.cafe.chatSettings),
-        notificationMode: chat.notificationMode,
-        unreadCount: chat.readStates[0]?.unreadCount || 0,
-        lastMessage: chat.messages[0]
-          ? await this.toMessageDto(chat.messages[0])
-          : null,
-        updatedAt: chat.updatedAt,
-      })),
+      items.map(async (chat) => {
+        const avatarUrl = await this.resolveUserAvatarUrl(
+          chat.order.user.avatar,
+        );
+        return {
+          id: chat.id,
+          orderId: chat.orderId,
+          cafeId: chat.cafeId,
+          userId: chat.userId,
+          isEnabled: this.resolveCafeChatEnabled(chat.cafe.chatSettings),
+          notificationMode: chat.notificationMode,
+          unreadCount: chat.readStates[0]?.unreadCount || 0,
+          user: {
+            id: chat.order.user.id,
+            firstName: chat.order.user.firstName,
+            lastName: chat.order.user.lastName,
+            email: chat.order.user.email,
+            phone: chat.order.user.phone,
+            avatarUrl,
+          },
+          order: {
+            id: chat.order.id,
+            orderNumber: chat.order.orderNumber,
+            status: chat.order.status,
+            totalAmount: chat.order.totalAmount
+              ? String(chat.order.totalAmount)
+              : null,
+            createdAt: chat.order.createdAt,
+            appointmentId: chat.order.appointmentId,
+          },
+          appointment: chat.order.appointment
+            ? {
+                id: chat.order.appointment.id,
+                dateTime: chat.order.appointment.dateTime,
+                duration: chat.order.appointment.duration,
+                status: chat.order.appointment.status,
+                notes: chat.order.appointment.notes,
+                orders: chat.order.appointment.orders.map((o) => ({
+                  id: o.id,
+                  orderNumber: o.orderNumber,
+                  status: o.status,
+                  totalAmount: o.totalAmount ? String(o.totalAmount) : null,
+                  createdAt: o.createdAt,
+                })),
+              }
+            : null,
+          lastMessage: chat.messages[0]
+            ? await this.toMessageDto(chat.messages[0])
+            : null,
+          updatedAt: chat.updatedAt,
+        };
+      }),
     );
     const filtered = mapped.filter((chat) =>
       query.unreadOnly === 'true' ? chat.unreadCount > 0 : true,
     );
+
+    await this.logWorkerActivity(actor, {
+      action: ActivityAction.VIEW_LIST,
+      category: ActivityCategory.VIEW,
+      resourceType: 'ORDER_CHAT',
+      details: {
+        page,
+        limit,
+        cafeId: query.cafeId,
+        orderId: query.orderId,
+        unreadOnly: query.unreadOnly,
+      },
+    });
 
     return {
       items: filtered,
@@ -484,6 +680,13 @@ export class OrderChatService {
     const messageDtos = await Promise.all(
       items.map((m) => this.toMessageDto(m)),
     );
+    await this.logWorkerActivity(actor, {
+      action: ActivityAction.VIEW_LIST,
+      category: ActivityCategory.VIEW,
+      resourceType: 'ORDER_CHAT_MESSAGE',
+      resourceId: chatId,
+      details: { page, limit },
+    });
     return {
       items: messageDtos,
       total,
@@ -598,6 +801,14 @@ export class OrderChatService {
       });
     });
 
+    await this.logWorkerActivity(actor, {
+      action: ActivityAction.CREATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'ORDER_CHAT_MESSAGE',
+      resourceId: created.id,
+      details: { chatId, orderId: chat.orderId },
+    });
+
     return {
       message: await this.toMessageDto(created),
       routing: {
@@ -662,6 +873,14 @@ export class OrderChatService {
       },
     });
 
+    await this.logWorkerActivity(actor, {
+      action: ActivityAction.FILE_UPLOAD,
+      category: ActivityCategory.DATA,
+      resourceType: 'ORDER_CHAT_ATTACHMENT',
+      resourceId: updated.id,
+      details: { chatId, mimeType: updated.mimeType },
+    });
+
     return {
       id: updated.id,
       chatId: updated.chatId,
@@ -698,6 +917,14 @@ export class OrderChatService {
         lastReadAt: new Date(),
         ...(dto.messageId ? { lastReadMessageId: dto.messageId } : {}),
       },
+    });
+
+    await this.logWorkerActivity(actor, {
+      action: ActivityAction.UPDATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'ORDER_CHAT_READ_STATE',
+      resourceId: chatId,
+      details: { messageId: dto.messageId },
     });
 
     return { ok: true };
@@ -752,7 +979,7 @@ export class OrderChatService {
       });
     }
 
-    return this.prisma.orderChat.update({
+    const updated = await this.prisma.orderChat.update({
       where: { id: chatId },
       data: {
         ...(dto.notificationMode
@@ -769,6 +996,20 @@ export class OrderChatService {
           : {}),
       },
     });
+
+    await this.logWorkerActivity(actor, {
+      action: ActivityAction.UPDATE_SETTINGS,
+      category: ActivityCategory.CONFIG,
+      resourceType: 'ORDER_CHAT',
+      resourceId: chatId,
+      details: {
+        isEnabled: dto.isEnabled,
+        notificationMode: dto.notificationMode,
+        hasTheme: dto.theme !== undefined,
+      },
+    });
+
+    return updated;
   }
 
   async setTyping(chatId: string, actor: Actor, isTyping: boolean) {

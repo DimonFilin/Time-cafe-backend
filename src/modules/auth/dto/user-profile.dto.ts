@@ -43,6 +43,15 @@ export class UserProfileDto {
   avatar?: string | null;
 
   @ApiProperty({
+    example: 'MALE',
+    description: 'User gender',
+    required: false,
+    nullable: true,
+    enum: ['MALE', 'FEMALE'],
+  })
+  gender?: 'MALE' | 'FEMALE' | null;
+
+  @ApiProperty({
     example: '0.00',
     description: 'User balance',
   })

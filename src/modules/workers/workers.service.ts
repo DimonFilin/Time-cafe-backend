@@ -7,9 +7,16 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { WorkerAccount, WorkerRole, Prisma } from '@prisma/client';
+import {
+  WorkerAccount,
+  WorkerRole,
+  Prisma,
+  ActivityAction,
+  ActivityCategory,
+} from '@prisma/client';
 import { KeycloakService } from '../auth/services/keycloak.service';
 import { UsersService } from '../users/users.service';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { RegisterWorkerDto } from './dto/register-worker.dto';
 import { UpdateWorkerDto } from './dto/update-worker.dto';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto';
@@ -32,6 +39,7 @@ export class WorkersService {
     private readonly prisma: PrismaService,
     private readonly keycloakService: KeycloakService,
     private readonly usersService: UsersService,
+    private readonly activityLogsService: ActivityLogsService,
   ) {}
 
   async findByKeycloakId(keycloakId: string): Promise<WorkerAccount | null> {
@@ -284,6 +292,25 @@ export class WorkersService {
         role: dto.role,
         brandId: dto.brandId,
         cafeId: dto.cafeId,
+      });
+
+      await this.activityLogsService.log({
+        workerId: requester.id,
+        workerEmail: requester.email,
+        workerRole: requester.role,
+        brandId: requester.brandId ?? undefined,
+        cafeId: requester.cafeId ?? undefined,
+        action: ActivityAction.CREATE,
+        category: ActivityCategory.DATA,
+        resourceType: 'WORKER_ACCOUNT',
+        resourceId: worker.id,
+        details: {
+          createdWorkerId: worker.id,
+          createdEmail: worker.email,
+          createdRole: worker.role,
+          brandId: worker.brandId,
+          cafeId: worker.cafeId,
+        },
       });
 
       let tokens: TokenResponse | undefined;

@@ -620,32 +620,7 @@ async function main() {
     });
     console.log(`✓ Created brand documents`);
 
-    // 15. Create Brand API Keys
-    console.log('\n🔑 Creating brand API keys...');
-    await prisma.brandApiKey.createMany({
-      data: [
-        {
-          brandId: brandCoffeeHouse.id,
-          name: 'Production API Key',
-          keyHash: 'hash_prod_coffeehouse_12345',
-          prefix: 'ch_prod',
-          permissions: ['read:orders', 'write:orders', 'read:cafes'],
-          isActive: true,
-          lastUsedAt: new Date(),
-        },
-        {
-          brandId: brandTimeCafe.id,
-          name: 'Development API Key',
-          keyHash: 'hash_dev_timecafe_67890',
-          prefix: 'tc_dev',
-          permissions: ['read:orders', 'read:cafes', 'read:users'],
-          isActive: true,
-        },
-      ],
-    });
-    console.log(`✓ Created brand API keys`);
-
-    // 16. Create System Settings
+    // 15. Create System Settings
     console.log('\n⚙️ Creating system settings...');
     await prisma.systemSettings.upsert({
       where: { id: 'system' },
@@ -666,7 +641,7 @@ async function main() {
     });
     console.log(`✓ Created system settings`);
 
-    // 17. Create Activity Logs
+    // 16. Create Activity Logs
     console.log('\n📊 Creating activity logs...');
     await prisma.activityLog.createMany({
       data: [
@@ -782,7 +757,7 @@ async function main() {
     console.log('   - User 2: maria.ivanova@example.com / User2026!');
     console.log('   - 2 Regions, 2 Brands, 2 Cafes');
     console.log('   - 2 Orders with items, 2 Transactions');
-    console.log('   - 2 Reviews, 3 Brand Documents, 2 API Keys');
+    console.log('   - 2 Reviews, 3 Brand Documents');
     console.log('   - Activity logs for all worker roles\n');
   } catch (error) {
     console.error('❌ Error during seeding:', error);

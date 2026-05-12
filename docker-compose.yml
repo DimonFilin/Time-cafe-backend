@@ -48,6 +48,8 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      # Dev: любые origin (Expo, админка по LAN). В production сузьте до своих доменов.
+      MINIO_API_CORS_ALLOW_ORIGIN: '*'
     ports:
       - '9000:9000' # API endpoint
       - '9001:9001' # Web Console

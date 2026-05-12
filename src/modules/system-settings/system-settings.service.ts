@@ -62,7 +62,6 @@ export class SystemSettingsService {
       limits: {
         maxFileSizeMB: 10,
         maxDocumentsPerBrand: 20,
-        maxApiKeysPerBrand: 10,
       },
     };
   }

@@ -39,6 +39,7 @@ model User {
   firstName    String
   lastName     String
   phone        String?
+  gender       Gender?
   avatar       String?
   balance      Decimal       @default(0) @db.Decimal(10, 2)
   deletedAt    DateTime?
@@ -573,6 +574,11 @@ enum WorkerRole {
   BRAND_ADMIN
   CAFE_ADMIN
   WORKER
+}
+
+enum Gender {
+  MALE
+  FEMALE
 }
 
 enum WorkerShiftStatus {

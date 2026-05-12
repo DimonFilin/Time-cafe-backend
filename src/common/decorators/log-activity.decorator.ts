@@ -1,4 +1,5 @@
 import { ActivityAction, ActivityCategory, LogSeverity } from '@prisma/client';
+import { severityForHttpStatus } from '../../modules/activity-logs/activity-log-policy';
 
 interface RequestUser {
   workerId?: string;
@@ -121,7 +122,7 @@ export function LogActivity(
               cafeId: request.user.cafeId,
               action,
               category,
-              severity: LogSeverity.WARNING,
+              severity: severityForHttpStatus(errorStatus),
               resourceType: options?.resourceType,
               details: {
                 error: errorMessage,

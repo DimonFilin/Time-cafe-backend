@@ -78,6 +78,7 @@ export class UsersService {
       firstName?: string;
       lastName?: string;
       phone?: string;
+      gender?: 'MALE' | 'FEMALE' | null;
       avatar?: string;
     },
   ): Promise<User> {

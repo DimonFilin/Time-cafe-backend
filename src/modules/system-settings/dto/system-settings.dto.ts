@@ -215,16 +215,6 @@ export class LimitsSettingsDto {
   @IsNumber()
   @Min(1)
   maxDocumentsPerBrand?: number;
-
-  @ApiPropertyOptional({
-    example: 10,
-    description: 'Maximum number of API keys per brand',
-    minimum: 1,
-  })
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  maxApiKeysPerBrand?: number;
 }
 
 export class UpdateSystemSettingsDto {

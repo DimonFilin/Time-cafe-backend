@@ -17,7 +17,13 @@ import { CancelAppointmentDto } from './dto/cancel-appointment.dto';
 import { AppointmentResponseDto } from './dto/appointment-response.dto';
 import { AppointmentListResponseDto } from './dto/appointment-list-response.dto';
 import { AppointmentListQueryDto } from './dto/appointment-list-query.dto';
-import { Prisma, WorkerRole } from '@prisma/client';
+import {
+  Prisma,
+  WorkerRole,
+  ActivityAction,
+  ActivityCategory,
+} from '@prisma/client';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 
 @Injectable()
 export class AppointmentsService {
@@ -29,7 +35,34 @@ export class AppointmentsService {
     private readonly workersService: WorkersService,
     private readonly balanceService: BalanceService,
     private readonly transactionsService: TransactionsService,
+    private readonly activityLogsService: ActivityLogsService,
   ) {}
+
+  private async logCafeStaffAppointment(
+    keycloakId: string,
+    params: {
+      action: ActivityAction;
+      category: ActivityCategory;
+      resourceType: string;
+      resourceId: string;
+      details?: Prisma.InputJsonValue;
+    },
+  ): Promise<void> {
+    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    if (!worker) return;
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: params.action,
+      category: params.category,
+      resourceType: params.resourceType,
+      resourceId: params.resourceId,
+      details: params.details,
+    });
+  }
 
   /**
    * Generate QR code for appointment
@@ -138,12 +171,12 @@ export class AppointmentsService {
       throw new BadRequestException('Appointment date must be in the future');
     }
 
-    // Check time slot availability
-    await this.checkTimeSlotAvailability(
-      createDto.cafeId,
-      dateTime,
-      createDto.duration,
-    );
+    // Temporarily disabled: time slot availability check
+    // await this.checkTimeSlotAvailability(
+    //   createDto.cafeId,
+    //   dateTime,
+    //   createDto.duration,
+    // );
 
     // Calculate cost
     const totalAmount = this.calculateAppointmentCost(createDto.duration);
@@ -344,12 +377,13 @@ export class AppointmentsService {
         throw new BadRequestException('Appointment date must be in the future');
       }
 
-      await this.checkTimeSlotAvailability(
-        appointment.cafeId,
-        newDateTime,
-        updateDto.duration || appointment.duration,
-        appointmentId,
-      );
+      // Temporarily disabled: time slot availability check
+      // await this.checkTimeSlotAvailability(
+      //   appointment.cafeId,
+      //   newDateTime,
+      //   updateDto.duration || appointment.duration,
+      //   appointmentId,
+      // );
     }
 
     const updatedAppointment = await this.prisma.appointment.update({
@@ -522,6 +556,14 @@ export class AppointmentsService {
       this.prisma.appointment.count({ where }),
     ]);
 
+    await this.logCafeStaffAppointment(keycloakId, {
+      action: ActivityAction.VIEW_LIST,
+      category: ActivityCategory.VIEW,
+      resourceType: 'APPOINTMENT',
+      resourceId: cafeId,
+      details: { page, limit, status: query.status },
+    });
+
     return {
       items: appointments.map((appointment) =>
         this.mapToResponseDto(appointment),
@@ -566,6 +608,14 @@ export class AppointmentsService {
 
     // Check access
     await this.checkCafeAccess(appointment.cafeId, keycloakId);
+
+    await this.logCafeStaffAppointment(keycloakId, {
+      action: ActivityAction.VIEW_DETAIL,
+      category: ActivityCategory.VIEW,
+      resourceType: 'APPOINTMENT',
+      resourceId: appointmentId,
+      details: { cafeId: appointment.cafeId },
+    });
 
     return this.mapToResponseDto(appointment);
   }
@@ -612,6 +662,14 @@ export class AppointmentsService {
 
     this.logger.log(`Appointment confirmed: ${appointmentId}`);
 
+    await this.logCafeStaffAppointment(keycloakId, {
+      action: ActivityAction.UPDATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'APPOINTMENT',
+      resourceId: appointmentId,
+      details: { status: 'confirmed', cafeId: appointment.cafeId },
+    });
+
     return this.mapToResponseDto(updatedAppointment);
   }
 
@@ -651,6 +709,15 @@ export class AppointmentsService {
     });
 
     this.logger.log(`Appointment checked in: ${appointmentId}`);
+
+    await this.logCafeStaffAppointment(keycloakId, {
+      action: ActivityAction.UPDATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'APPOINTMENT',
+      resourceId: appointmentId,
+      details: { status: 'completed', cafeId: appointment.cafeId },
+    });
+
     return this.mapToResponseDto(updatedAppointment);
   }
 
@@ -696,6 +763,15 @@ export class AppointmentsService {
     });
 
     this.logger.log(`Appointment cancelled by cafe: ${appointmentId}`);
+
+    await this.logCafeStaffAppointment(keycloakId, {
+      action: ActivityAction.UPDATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'APPOINTMENT',
+      resourceId: appointmentId,
+      details: { status: 'cancelled', cafeId: appointment.cafeId },
+    });
+
     return this.mapToResponseDto(updatedAppointment);
   }
 

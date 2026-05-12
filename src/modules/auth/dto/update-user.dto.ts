@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsIn } from 'class-validator';
 
 export class UpdateUserDto {
   @ApiProperty({
@@ -37,4 +37,15 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   avatar?: string;
+
+  @ApiProperty({
+    example: 'MALE',
+    description: 'User gender',
+    required: false,
+    enum: ['MALE', 'FEMALE'],
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(['MALE', 'FEMALE'])
+  gender?: 'MALE' | 'FEMALE';
 }

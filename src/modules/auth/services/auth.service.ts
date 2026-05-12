@@ -207,6 +207,17 @@ export class AuthService {
         this.logger.debug(
           `WorkerAccount found: ${workerAccount.id}, email: ${workerAccount.email}, role: ${workerAccount.role}`,
         );
+        await this.activityLogsService.log({
+          workerId: workerAccount.id,
+          workerEmail: workerAccount.email,
+          workerRole: workerAccount.role,
+          brandId: workerAccount.brandId ?? undefined,
+          cafeId: workerAccount.cafeId ?? undefined,
+          action: ActivityAction.TOKEN_REFRESH,
+          category: ActivityCategory.AUTH,
+          resourceType: 'SESSION',
+          details: { source: 'POST /auth/refresh' },
+        });
         return {
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,
@@ -242,6 +253,7 @@ export class AuthService {
     firstName: string;
     lastName: string;
     phone: string | null;
+    gender?: 'MALE' | 'FEMALE' | null;
     avatar: string | null;
     balance: { toString(): string };
     createdAt: Date;
@@ -252,6 +264,7 @@ export class AuthService {
       firstName: user.firstName,
       lastName: user.lastName,
       phone: user.phone ?? undefined,
+      gender: user.gender ?? undefined,
       avatar: user.avatar ?? undefined,
       balance: user.balance.toString(),
       createdAt: user.createdAt,
@@ -599,6 +612,7 @@ export class AuthService {
       firstName?: string;
       lastName?: string;
       phone?: string;
+      gender?: 'MALE' | 'FEMALE';
       avatar?: string;
     },
   ): Promise<UserProfileDto> {

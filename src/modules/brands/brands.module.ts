@@ -6,9 +6,16 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { StorageModule } from '../storage/storage.module';
 import { KeycloakModule } from '../auth/keycloak.module';
 import { WorkersModule } from '../workers/workers.module';
+import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 
 @Module({
-  imports: [PrismaModule, StorageModule, KeycloakModule, WorkersModule],
+  imports: [
+    PrismaModule,
+    StorageModule,
+    KeycloakModule,
+    WorkersModule,
+    ActivityLogsModule,
+  ],
   controllers: [BrandsController],
   providers: [BrandsService, ExportService],
   exports: [BrandsService],

@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { networkInterfaces } from 'node:os';
 import {
   S3Client,
   PutObjectCommand,
@@ -24,7 +25,12 @@ import { FileMetadataDto } from './dto/file-metadata.dto';
 @Injectable()
 export class StorageService implements OnModuleInit {
   private readonly logger = new Logger(StorageService.name);
+  /** S3 API (Put/Head/…) — адрес, с которого Nest реально ходит в MinIO. */
   private s3Client: S3Client;
+  /** Подпись presigned GetObject — хост в URL должен открываться в браузере/на телефоне (SigV4 привязан к host). */
+  private s3SigningClient: S3Client;
+  /** Тот же origin, что в presigned URL (для DTO upload без расхождения с getFileUrl). */
+  private readonly signingEndpointUrl: string;
   private readonly s3Config: {
     accessKey: string;
     secretKey: string;
@@ -39,9 +45,10 @@ export class StorageService implements OnModuleInit {
   };
 
   constructor(private configService: ConfigService) {
-    const endpoint =
+    const internalEndpoint = this.normalizeS3Endpoint(
       this.configService.get<string>('STORAGE_ENDPOINT') ||
-      'http://localhost:9000';
+        'http://localhost:9000',
+    );
     const accessKey =
       this.configService.get<string>('STORAGE_ACCESS_KEY') || 'minioadmin';
     const secretKey =
@@ -52,16 +59,19 @@ export class StorageService implements OnModuleInit {
 
     this.s3Config = { accessKey, secretKey, region, useSSL };
 
-    this.s3Client = new S3Client({
-      endpoint,
-      region,
-      credentials: {
-        accessKeyId: accessKey,
-        secretAccessKey: secretKey,
-      },
-      forcePathStyle: true, // Required for MinIO
-      ...(useSSL ? {} : { tls: false }),
-    });
+    this.s3Client = this.createS3Client(internalEndpoint);
+
+    this.signingEndpointUrl = this.resolveSigningEndpoint(internalEndpoint);
+    this.s3SigningClient =
+      this.signingEndpointUrl === internalEndpoint
+        ? this.s3Client
+        : this.createS3Client(this.signingEndpointUrl);
+
+    if (this.signingEndpointUrl !== internalEndpoint) {
+      this.logger.log(
+        `Presigned URLs use ${this.signingEndpointUrl} (STORAGE_ENDPOINT=${internalEndpoint} for server S3 calls)`,
+      );
+    }
 
     this.buckets = {
       brands: 'brands',
@@ -69,6 +79,107 @@ export class StorageService implements OnModuleInit {
       users: 'users',
       public: 'public',
     };
+  }
+
+  private normalizeS3Endpoint(raw: string): string {
+    const t = String(raw || '')
+      .trim()
+      .replace(/\/+$/, '');
+    if (!t) return 'http://localhost:9000';
+    if (!/^https?:\/\//i.test(t)) {
+      return `http://${t}`;
+    }
+    return t;
+  }
+
+  /** Непетлевой частный IPv4 из URL (для выравнивания presigned MinIO с LAN-админкой). */
+  private tryPrivateHostFromUrl(raw?: string | null): string | null {
+    const t = String(raw ?? '').trim();
+    if (!t) return null;
+    try {
+      const u = new URL(/^https?:\/\//i.test(t) ? t : `http://${t}`);
+      const h = u.hostname.toLowerCase();
+      if (h === 'localhost' || h === '127.0.0.1') return null;
+      if (/^(10\.|172\.(1[6-9]|2\d|3[0-1])\.|192\.168\.)/.test(h)) return h;
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  private listLanIPv4Addresses(): string[] {
+    const nets = networkInterfaces();
+    const out: string[] = [];
+    for (const info of Object.values(nets).flat()) {
+      if (
+        info &&
+        info.family === 'IPv4' &&
+        !info.internal &&
+        /^(10\.|172\.(1[6-9]|2\d|3[0-1])\.|192\.168\.)/.test(info.address)
+      ) {
+        out.push(info.address);
+      }
+    }
+    return [...new Set(out)].sort();
+  }
+
+  /**
+   * При нескольких NIC (Wi‑Fi, Hyper‑V, VirtualBox…) «первая» LAN IP часто не та, что у телефона.
+   * Задайте STORAGE_PUBLIC_ENDPOINT или STORAGE_LAN_PREFER_PREFIX (например 192.168.35).
+   */
+  private pickLanIPv4(): string | null {
+    const list = this.listLanIPv4Addresses();
+    if (!list.length) return null;
+    const prefer = this.configService
+      .get<string>('STORAGE_LAN_PREFER_PREFIX')
+      ?.trim();
+    if (prefer) {
+      const hit = list.find((a) => a.startsWith(prefer));
+      if (hit) return hit;
+    }
+    return list[0] ?? null;
+  }
+
+  /**
+   * Endpoint, который попадёт в presigned URL (Host в подписи).
+   * Должен совпадать с тем, куда клиенты реально ходят за файлами.
+   */
+  private resolveSigningEndpoint(internal: string): string {
+    const explicit =
+      this.configService.get<string>('STORAGE_PUBLIC_ENDPOINT')?.trim() ||
+      this.configService.get<string>('BACKEND_FILE_SYSTEM_URL')?.trim() ||
+      this.configService.get<string>('BACKEND_FILE_SYSTEM')?.trim();
+    if (explicit) {
+      return this.normalizeS3Endpoint(explicit);
+    }
+
+    if (/localhost|127\.0\.0\.1/i.test(internal)) {
+      try {
+        const parsed = new URL(internal);
+        const port = parsed.port || '9000';
+        const proto = parsed.protocol || 'http:';
+
+        const feHost = this.tryPrivateHostFromUrl(
+          this.configService.get<string>('FRONTEND_URL'),
+        );
+        if (feHost) {
+          return `${proto}//${feHost}:${port}`;
+        }
+
+        const lan = this.pickLanIPv4();
+        if (lan) {
+          return `${proto}//${lan}:${port}`;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return internal;
+  }
+
+  private getPublicFileSystemBase(): string {
+    return this.signingEndpointUrl;
   }
 
   private createS3Client(endpoint: string) {
@@ -85,6 +196,9 @@ export class StorageService implements OnModuleInit {
   }
 
   async onModuleInit(): Promise<void> {
+    this.logger.log(
+      `Presigned / public file URL base: ${this.signingEndpointUrl}`,
+    );
     // Create buckets on initialization if they don't exist
     await this.ensureBucketsExist();
   }
@@ -163,12 +277,7 @@ export class StorageService implements OnModuleInit {
         `File uploaded successfully: ${bucket}/${path}, ETag: ${response.ETag}`,
       );
 
-      const fileSystemBaseRaw =
-        this.configService.get<string>('BACKEND_FILE_SYSTEM_URL') ||
-        this.configService.get<string>('BACKEND_FILE_SYSTEM') ||
-        this.configService.get<string>('STORAGE_ENDPOINT') ||
-        'http://localhost:9000';
-      const fileSystemBase = String(fileSystemBaseRaw).replace(/\/+$/, '');
+      const fileSystemBase = this.getPublicFileSystemBase();
       // Encode path for URL
       const encodedPath = encodeURIComponent(path).replace(/%2F/g, '/');
       const url = `${fileSystemBase}/${bucket}/${encodedPath}`;
@@ -237,7 +346,9 @@ export class StorageService implements OnModuleInit {
 
       // Use signed URL for all files (MinIO requires signature for access)
       // To make bucket public, configure it through MinIO policies
-      const url = await getSignedUrl(this.s3Client, command, { expiresIn });
+      const url = await getSignedUrl(this.s3SigningClient, command, {
+        expiresIn,
+      });
 
       this.logger.log(`Generated signed URL for ${bucket}/${path}`);
 
@@ -409,5 +520,35 @@ export class StorageService implements OnModuleInit {
    */
   getBuckets(): typeof this.buckets {
     return this.buckets;
+  }
+
+  /**
+   * Байты объекта из MinIO по внутреннему S3-клиенту (без presigned URL).
+   * Для отдачи файлов в админку через BFF, когда браузер на localhost не может ходить на LAN :9000.
+   */
+  async getObjectBytes(
+    bucket: string,
+    key: string,
+  ): Promise<{ data: Buffer; contentType: string }> {
+    const exists = await this.fileExists(bucket, key);
+    if (!exists) {
+      throw new NotFoundException(`File not found: ${bucket}/${key}`);
+    }
+
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    });
+    const out = await this.s3Client.send(command);
+    const body = out.Body;
+    if (!body) {
+      throw new NotFoundException(`Empty body: ${bucket}/${key}`);
+    }
+
+    const arr = await body.transformToByteArray();
+    return {
+      data: Buffer.from(arr),
+      contentType: out.ContentType || 'application/octet-stream',
+    };
   }
 }

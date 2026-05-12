@@ -94,4 +94,15 @@ export class CafeResponseDto {
     description: 'Last update date',
   })
   updatedAt: Date;
+
+  @ApiPropertyOptional({
+    description: 'Opening hours by weekday',
+    example: {
+      monday: { open: '09:00', close: '21:00' },
+      tuesday: { open: '09:00', close: '21:00' },
+      sunday: { closed: true },
+    },
+    type: Object,
+  })
+  openingHours?: unknown;
 }

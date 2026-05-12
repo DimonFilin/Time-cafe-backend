@@ -254,13 +254,25 @@ export class CafeAdminController {
     @Query('search') search?: string,
     @Query('shiftStatus') shiftStatus?: 'ON_SHIFT' | 'OFF_SHIFT',
   ) {
-    const { cafeId } = await this.enrichRequest(req);
-    return this.workersService.getWorkers(cafeId, {
+    const { cafeId, worker } = await this.enrichRequest(req);
+    const data = await this.workersService.getWorkers(cafeId, {
       page,
       limit,
       search,
       shiftStatus,
     });
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId,
+      action: ActivityAction.VIEW_LIST,
+      category: ActivityCategory.VIEW,
+      resourceType: 'WORKER',
+      details: { cafeId, page, limit, search, shiftStatus },
+    });
+    return data;
   }
 
   @Get('workers/:id')
@@ -270,8 +282,21 @@ export class CafeAdminController {
     @Request() req: CafeAdminRequest,
     @Param('id') workerId: string,
   ) {
-    const { cafeId } = await this.enrichRequest(req);
-    return this.workersService.getWorkerById(cafeId, workerId);
+    const { cafeId, worker } = await this.enrichRequest(req);
+    const data = await this.workersService.getWorkerById(cafeId, workerId);
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId,
+      action: ActivityAction.VIEW_DETAIL,
+      category: ActivityCategory.VIEW,
+      resourceType: 'WORKER',
+      resourceId: workerId,
+      details: { cafeId },
+    });
+    return data;
   }
 
   @Patch('workers/:id')

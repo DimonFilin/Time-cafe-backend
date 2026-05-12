@@ -6,7 +6,13 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkersService } from '../workers/workers.service';
-import { Prisma, WorkerRole } from '@prisma/client';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import {
+  Prisma,
+  WorkerRole,
+  ActivityAction,
+  ActivityCategory,
+} from '@prisma/client';
 import type { CafeMenuJsonV1Dto } from './dto/cafe-menu-json.dto';
 import type { CafeMenuResponseDto } from './dto/cafe-menu-response.dto';
 import type {
@@ -35,6 +41,7 @@ export class MenuService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly workersService: WorkersService,
+    private readonly activityLogsService: ActivityLogsService,
   ) {}
 
   private async assertCafeExists(cafeId: string) {
@@ -68,6 +75,32 @@ export class MenuService {
     }
 
     throw new ForbiddenException('Insufficient permissions');
+  }
+
+  private async logMenuMutation(
+    keycloakId: string,
+    params: {
+      action: ActivityAction;
+      category: ActivityCategory;
+      resourceType: string;
+      resourceId?: string;
+      details?: Prisma.InputJsonValue;
+    },
+  ): Promise<void> {
+    const worker = await this.workersService.findByKeycloakId(keycloakId);
+    if (!worker) return;
+    await this.activityLogsService.log({
+      workerId: worker.id,
+      workerEmail: worker.email,
+      workerRole: worker.role,
+      brandId: worker.brandId ?? undefined,
+      cafeId: worker.cafeId ?? undefined,
+      action: params.action,
+      category: params.category,
+      resourceType: params.resourceType,
+      resourceId: params.resourceId,
+      details: params.details,
+    });
   }
 
   private mapMenu(
@@ -172,6 +205,17 @@ export class MenuService {
       where: { cafeId },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       include: { category: { select: { key: true } } },
+    });
+
+    await this.logMenuMutation(keycloakId, {
+      action: ActivityAction.EXPORT_DATA,
+      category: ActivityCategory.DATA,
+      resourceType: 'MENU',
+      resourceId: cafeId,
+      details: {
+        categories: categories.length,
+        items: items.length,
+      },
     });
 
     return {
@@ -331,6 +375,14 @@ export class MenuService {
       }
     });
 
+    await this.logMenuMutation(keycloakId, {
+      action: ActivityAction.BULK_UPDATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'MENU',
+      resourceId: cafeId,
+      details: { mode, categories: categoriesIn.length, items: itemsIn.length },
+    });
+
     return this.getAdminMenu({ cafeId, keycloakId, includeInactive: true });
   }
 
@@ -347,7 +399,7 @@ export class MenuService {
     const name = String(dto.name ?? '').trim();
     if (!name) throw new BadRequestException('Category name is required');
 
-    return this.prisma.cafeMenuCategory.create({
+    const created = await this.prisma.cafeMenuCategory.create({
       data: {
         cafeId,
         key,
@@ -357,6 +409,14 @@ export class MenuService {
         isActive: dto.isActive ?? true,
       },
     });
+    await this.logMenuMutation(keycloakId, {
+      action: ActivityAction.CREATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'MENU_CATEGORY',
+      resourceId: created.id,
+      details: { cafeId, key },
+    });
+    return created;
   }
 
   async updateCategory(params: {
@@ -373,7 +433,7 @@ export class MenuService {
     });
     if (!existing) throw new NotFoundException('Menu category not found');
 
-    return this.prisma.cafeMenuCategory.update({
+    const updated = await this.prisma.cafeMenuCategory.update({
       where: { id: categoryId },
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
@@ -384,6 +444,14 @@ export class MenuService {
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
     });
+    await this.logMenuMutation(keycloakId, {
+      action: ActivityAction.UPDATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'MENU_CATEGORY',
+      resourceId: categoryId,
+      details: { cafeId },
+    });
+    return updated;
   }
 
   async deleteCategory(params: {
@@ -410,6 +478,14 @@ export class MenuService {
       });
     });
 
+    await this.logMenuMutation(keycloakId, {
+      action: ActivityAction.DELETE,
+      category: ActivityCategory.DATA,
+      resourceType: 'MENU_CATEGORY',
+      resourceId: categoryId,
+      details: { cafeId, soft: true },
+    });
+
     return { ok: true };
   }
 
@@ -431,7 +507,7 @@ export class MenuService {
     });
     if (!category) throw new NotFoundException('Menu category not found');
 
-    return this.prisma.cafeMenuItem.create({
+    const created = await this.prisma.cafeMenuItem.create({
       data: {
         cafeId,
         categoryId: dto.categoryId,
@@ -445,6 +521,14 @@ export class MenuService {
         isActive: dto.isActive ?? true,
       },
     });
+    await this.logMenuMutation(keycloakId, {
+      action: ActivityAction.CREATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'MENU_ITEM',
+      resourceId: created.id,
+      details: { cafeId, key },
+    });
+    return created;
   }
 
   async updateItem(params: {
@@ -468,7 +552,7 @@ export class MenuService {
       if (!category) throw new NotFoundException('Menu category not found');
     }
 
-    return this.prisma.cafeMenuItem.update({
+    const updated = await this.prisma.cafeMenuItem.update({
       where: { id: itemId },
       data: {
         ...(dto.categoryId !== undefined ? { categoryId: dto.categoryId } : {}),
@@ -483,6 +567,14 @@ export class MenuService {
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
     });
+    await this.logMenuMutation(keycloakId, {
+      action: ActivityAction.UPDATE,
+      category: ActivityCategory.DATA,
+      resourceType: 'MENU_ITEM',
+      resourceId: itemId,
+      details: { cafeId },
+    });
+    return updated;
   }
 
   async deleteItem(params: {
@@ -501,6 +593,13 @@ export class MenuService {
     await this.prisma.cafeMenuItem.update({
       where: { id: itemId },
       data: { isActive: false },
+    });
+    await this.logMenuMutation(keycloakId, {
+      action: ActivityAction.DELETE,
+      category: ActivityCategory.DATA,
+      resourceType: 'MENU_ITEM',
+      resourceId: itemId,
+      details: { cafeId, soft: true },
     });
     return { ok: true };
   }

@@ -24,9 +24,11 @@ import { TasksModule } from './modules/tasks/tasks.module';
 import { CafeAdminModule } from './modules/cafe-admin/cafe-admin.module';
 import { MenuModule } from './modules/menu/menu.module';
 import { OrderChatModule } from './modules/order-chat/order-chat.module';
+import { WorkerContextModule } from './common/worker-context/worker-context.module';
 
 @Module({
   imports: [
+    WorkerContextModule,
     ConfigModule,
     PrismaModule,
     AuthModule,

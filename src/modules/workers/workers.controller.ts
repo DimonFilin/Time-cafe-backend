@@ -22,16 +22,9 @@ import {
 } from '@nestjs/swagger';
 import { UseGuards } from '@nestjs/common';
 import { AuthGuard } from 'nest-keycloak-connect';
-import {
-  WorkerRole,
-  ActivityAction,
-  ActivityCategory,
-  WorkerAccount,
-} from '@prisma/client';
+import { WorkerRole, WorkerAccount } from '@prisma/client';
 import { WorkersService } from './workers.service';
 import { KeycloakService } from '../auth/services/keycloak.service';
-import { ActivityLogsService } from '../activity-logs/activity-logs.service';
-import { LogActivity } from '../../common/decorators/log-activity.decorator';
 import { RegisterWorkerDto } from './dto/register-worker.dto';
 import { UpdateWorkerDto } from './dto/update-worker.dto';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto';
@@ -45,7 +38,6 @@ export class WorkersController {
   constructor(
     private readonly workersService: WorkersService,
     private readonly keycloakService: KeycloakService,
-    private readonly activityLogsService: ActivityLogsService,
   ) {}
 
   @Post()
@@ -81,41 +73,6 @@ export class WorkersController {
   @ApiResponse({
     status: 400,
     description: 'Validation error',
-  })
-  @LogActivity(ActivityAction.CREATE, ActivityCategory.DATA, {
-    resourceType: 'WORKER_ACCOUNT',
-    getResourceId: (result: unknown) => {
-      if (
-        typeof result === 'object' &&
-        result !== null &&
-        'user' in result &&
-        typeof result.user === 'object' &&
-        result.user !== null &&
-        'id' in result.user &&
-        typeof result.user.id === 'string'
-      ) {
-        return result.user.id;
-      }
-      return undefined;
-    },
-    getDetails: (result: unknown) => {
-      if (
-        typeof result === 'object' &&
-        result !== null &&
-        'user' in result &&
-        typeof result.user === 'object' &&
-        result.user !== null
-      ) {
-        const user = result.user as Record<string, unknown>;
-        return {
-          workerRole: user.role,
-          workerEmail: user.email,
-          brandId: user.brandId,
-          cafeId: user.cafeId,
-        };
-      }
-      return {};
-    },
   })
   async register(
     @Body() dto: RegisterWorkerDto,

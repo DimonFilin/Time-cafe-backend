@@ -1003,6 +1003,7 @@ export class CafesService {
     cafeApiUrl?: string | null;
     createdAt: Date;
     updatedAt: Date;
+    openingHours?: unknown;
     brand?: { name: string } | null;
     region?: { name: string } | null;
   }): CafeResponseDto {
@@ -1025,6 +1026,7 @@ export class CafesService {
       cafeApiUrl: cafe.cafeApiUrl || undefined,
       createdAt: cafe.createdAt,
       updatedAt: cafe.updatedAt,
+      openingHours: cafe.openingHours ?? undefined,
     };
   }
 

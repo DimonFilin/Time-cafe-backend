@@ -8,9 +8,16 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { UsersModule } from '../users/users.module';
 import { WorkersModule } from '../workers/workers.module';
 import { KeycloakModule } from '../auth/keycloak.module';
+import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 
 @Module({
-  imports: [PrismaModule, UsersModule, WorkersModule, KeycloakModule],
+  imports: [
+    PrismaModule,
+    UsersModule,
+    WorkersModule,
+    KeycloakModule,
+    ActivityLogsModule,
+  ],
   controllers: [PaymentsController, AdminTransactionsController],
   providers: [PaymentCardsService, TransactionsService, BalanceService],
   exports: [PaymentCardsService, TransactionsService, BalanceService],

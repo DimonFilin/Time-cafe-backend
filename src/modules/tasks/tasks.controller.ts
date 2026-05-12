@@ -15,7 +15,6 @@ import {
 import { TasksService } from './tasks.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { Unprotected } from 'nest-keycloak-connect';
-import { LogActivity } from '../../common/decorators/log-activity.decorator';
 import {
   CreateTaskTemplateDto,
   UpdateTaskTemplateDto,
@@ -208,7 +207,6 @@ export class TasksController {
   @Post('cafe-admin/tasks/templates')
   @ApiOperation({ summary: 'Create task template' })
   @ApiResponse({ status: 201, type: TaskTemplateResponseDto })
-  @LogActivity('CREATE', 'DATA', { resourceType: 'TASK_TEMPLATE' })
   async createTemplate(
     @Body() dto: CreateTaskTemplateDto,
     @Req() req: RequestWithAuth,
@@ -224,7 +222,6 @@ export class TasksController {
   @ApiOperation({ summary: 'Get all task templates for cafe' })
   @ApiQuery({ name: 'includeInactive', required: false, type: Boolean })
   @ApiResponse({ status: 200, type: [TaskTemplateResponseDto] })
-  @LogActivity('VIEW_LIST', 'VIEW', { resourceType: 'TASK_TEMPLATE' })
   async getTemplates(
     @Req() req: RequestWithAuth,
     @Query('includeInactive') includeInactive?: string,
@@ -233,13 +230,13 @@ export class TasksController {
     return this.tasksService.getTemplates(
       worker.cafeId!,
       includeInactive === 'true',
+      worker.id,
     );
   }
 
   @Patch('cafe-admin/tasks/templates/:id')
   @ApiOperation({ summary: 'Update task template' })
   @ApiResponse({ status: 200, type: TaskTemplateResponseDto })
-  @LogActivity('UPDATE', 'DATA', { resourceType: 'TASK_TEMPLATE' })
   async updateTemplate(
     @Param('id') id: string,
     @Body() dto: UpdateTaskTemplateDto,
@@ -252,7 +249,6 @@ export class TasksController {
   @Patch('cafe-admin/tasks/templates/:id/deactivate')
   @ApiOperation({ summary: 'Deactivate task template' })
   @ApiResponse({ status: 200, type: TaskTemplateResponseDto })
-  @LogActivity('UPDATE', 'DATA', { resourceType: 'TASK_TEMPLATE' })
   async deactivateTemplate(
     @Param('id') id: string,
     @Req() req: RequestWithAuth,
@@ -266,14 +262,18 @@ export class TasksController {
   @ApiQuery({ name: 'fromDate', required: true, example: '2024-01-01' })
   @ApiQuery({ name: 'toDate', required: true, example: '2024-01-31' })
   @ApiResponse({ status: 200, type: TaskStatisticsResponseDto })
-  @LogActivity('VIEW_REPORT', 'VIEW', { resourceType: 'TASK_STATISTICS' })
   async getStatistics(
     @Query('fromDate') fromDate: string,
     @Query('toDate') toDate: string,
     @Req() req: RequestWithAuth,
   ): Promise<TaskStatisticsResponseDto> {
     const worker = await this.getWorkerFromToken(req, 'CAFE_ADMIN');
-    return this.tasksService.getStatistics(worker.cafeId!, fromDate, toDate);
+    return this.tasksService.getStatistics(
+      worker.cafeId!,
+      fromDate,
+      toDate,
+      worker.id,
+    );
   }
 
   @Get('cafe-admin/tasks/templates/:id/completions')
@@ -283,7 +283,6 @@ export class TasksController {
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'pageSize', required: false, type: Number, example: 100 })
   @ApiResponse({ status: 200, type: TaskCompletionHistoryResponseDto })
-  @LogActivity('VIEW_LIST', 'VIEW', { resourceType: 'TASK_COMPLETION' })
   async getTemplateCompletions(
     @Param('id') id: string,
     @Query('fromDate') fromDate: string,
@@ -301,6 +300,7 @@ export class TasksController {
       toDate,
       page,
       pageSize,
+      worker.id,
     );
   }
 
@@ -317,7 +317,6 @@ export class TasksController {
     description: 'Date in YYYY-MM-DD format. Defaults to today.',
   })
   @ApiResponse({ status: 200, type: WorkerTasksResponseDto })
-  @LogActivity('VIEW_LIST', 'VIEW', { resourceType: 'TASK' })
   async getWorkerTasks(
     @Req() req: RequestWithAuth,
     @Query('date') date?: string,
@@ -334,7 +333,6 @@ export class TasksController {
   @Post('cafe-worker/tasks/:templateId/complete')
   @ApiOperation({ summary: 'Mark task as completed' })
   @ApiResponse({ status: 201 })
-  @LogActivity('CREATE', 'DATA', { resourceType: 'TASK_COMPLETION' })
   async completeTask(
     @Param('templateId') templateId: string,
     @Body() dto: CompleteTaskDto,
@@ -348,7 +346,6 @@ export class TasksController {
   @ApiOperation({ summary: 'Unmark task completion' })
   @ApiQuery({ name: 'date', required: true, example: '2024-01-15' })
   @ApiResponse({ status: 200 })
-  @LogActivity('DELETE', 'DATA', { resourceType: 'TASK_COMPLETION' })
   async uncompleteTask(
     @Param('templateId') templateId: string,
     @Query('date') date: string,

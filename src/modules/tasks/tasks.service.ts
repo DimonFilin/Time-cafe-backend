@@ -90,6 +90,7 @@ export class TasksService {
     resourceId: string,
     cafeId: string,
     details: Record<string, unknown>,
+    category: ActivityCategory = ActivityCategory.DATA,
   ) {
     try {
       const worker = await this.prisma.workerAccount.findUnique({
@@ -103,7 +104,7 @@ export class TasksService {
           workerEmail: worker.email,
           workerRole: worker.role,
           action: action as ActivityAction,
-          category: 'DATA' as ActivityCategory,
+          category,
           resourceType,
           resourceId,
           cafeId,
@@ -193,6 +194,7 @@ export class TasksService {
   async getTemplates(
     cafeId: string,
     includeInactive = false,
+    actorWorkerId?: string,
   ): Promise<TaskTemplateResponseDto[]> {
     const templates = await this.prisma.taskTemplate.findMany({
       where: {
@@ -201,6 +203,18 @@ export class TasksService {
       },
       orderBy: [{ category: 'asc' }, { priority: 'desc' }, { title: 'asc' }],
     });
+
+    if (actorWorkerId) {
+      await this.logActivity(
+        actorWorkerId,
+        'VIEW_LIST',
+        'TASK_TEMPLATE',
+        cafeId,
+        cafeId,
+        { includeInactive },
+        ActivityCategory.VIEW,
+      );
+    }
 
     return templates.map((t) => this.mapTemplateToDto(t));
   }
@@ -421,6 +435,16 @@ export class TasksService {
 
     const completedCount = tasks.filter((t) => t.completed).length;
 
+    await this.logActivity(
+      workerId,
+      'VIEW_LIST',
+      'TASK',
+      cafeId,
+      cafeId,
+      { date, totalCount: tasks.length },
+      ActivityCategory.VIEW,
+    );
+
     return {
       tasks,
       completedCount,
@@ -589,6 +613,7 @@ export class TasksService {
     cafeId: string,
     fromDate: string,
     toDate: string,
+    actorWorkerId?: string,
   ): Promise<TaskStatisticsResponseDto> {
     const from = new Date(fromDate);
     const to = new Date(toDate);
@@ -701,6 +726,18 @@ export class TasksService {
           : undefined,
     }));
 
+    if (actorWorkerId) {
+      await this.logActivity(
+        actorWorkerId,
+        'VIEW_REPORT',
+        'TASK_STATISTICS',
+        cafeId,
+        cafeId,
+        { fromDate, toDate },
+        ActivityCategory.VIEW,
+      );
+    }
+
     return {
       fromDate,
       toDate,
@@ -718,6 +755,7 @@ export class TasksService {
     toDate: string,
     page = 1,
     pageSize = 100,
+    actorWorkerId?: string,
   ): Promise<TaskCompletionHistoryResponseDto> {
     // Verify template belongs to cafe
     await this.getTemplateById(templateId, cafeId);
@@ -765,6 +803,18 @@ export class TasksService {
       comment: this.nullToUndefined(completion.comment),
       durationMinutes: this.nullToUndefined(completion.durationMinutes),
     }));
+
+    if (actorWorkerId) {
+      await this.logActivity(
+        actorWorkerId,
+        'VIEW_LIST',
+        'TASK_COMPLETION',
+        templateId,
+        cafeId,
+        { fromDate, toDate, page, pageSize, total },
+        ActivityCategory.VIEW,
+      );
+    }
 
     return {
       completions: completionHistory,

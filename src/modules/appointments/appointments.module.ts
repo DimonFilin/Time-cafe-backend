@@ -6,6 +6,7 @@ import { UsersModule } from '../users/users.module';
 import { WorkersModule } from '../workers/workers.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { KeycloakModule } from '../auth/keycloak.module';
+import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { KeycloakModule } from '../auth/keycloak.module';
     WorkersModule,
     PaymentsModule,
     KeycloakModule,
+    ActivityLogsModule,
   ],
   controllers: [AppointmentsController],
   providers: [AppointmentsService],

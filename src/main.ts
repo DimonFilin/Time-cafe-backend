@@ -10,8 +10,20 @@ async function bootstrap() {
     logger: loggerConfig,
   });
 
+  const frontendRaw = process.env.FRONTEND_URL || 'http://localhost:3001';
+  const corsOrigins = frontendRaw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const origin =
+    corsOrigins.length === 0
+      ? 'http://localhost:3001'
+      : corsOrigins.length === 1
+        ? corsOrigins[0]
+        : corsOrigins;
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    // Несколько origin через запятую: localhost + LAN (админка / тесты с телефона)
+    origin,
     credentials: true,
   });
 

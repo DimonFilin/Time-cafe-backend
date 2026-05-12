@@ -13,7 +13,7 @@ import { CafeWorkerService } from './cafe-worker.service';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { AuthGuard, Unprotected } from 'nest-keycloak-connect';
 import { LogActivity } from '../../common/decorators/log-activity.decorator';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, ActivityAction, ActivityCategory } from '@prisma/client';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -34,7 +34,9 @@ export class CafeWorkerController {
   ) {}
 
   @Get('orders')
-  @LogActivity('VIEW_LIST', 'VIEW', { resourceType: 'ORDER' })
+  @LogActivity(ActivityAction.VIEW_LIST, ActivityCategory.VIEW, {
+    resourceType: 'ORDER',
+  })
   async getOrders(
     @Query('cafeId') cafeId: string,
     @Query('status') statusQuery?: string,
@@ -53,7 +55,9 @@ export class CafeWorkerController {
   }
 
   @Get('orders/:id')
-  @LogActivity('VIEW_DETAIL', 'VIEW', { resourceType: 'ORDER' })
+  @LogActivity(ActivityAction.VIEW_DETAIL, ActivityCategory.VIEW, {
+    resourceType: 'ORDER',
+  })
   async getOrderById(
     @Param('id') id: string,
     @Query('cafeId') cafeId: string,
@@ -159,7 +163,9 @@ export class CafeWorkerController {
   }
 
   @Patch('orders/:id/confirm')
-  @LogActivity('UPDATE', 'DATA', { resourceType: 'ORDER' })
+  @LogActivity(ActivityAction.UPDATE, ActivityCategory.DATA, {
+    resourceType: 'ORDER',
+  })
   async confirmOrder(
     @Param('id') id: string,
     @Query('cafeId') cafeId: string,
@@ -174,7 +180,9 @@ export class CafeWorkerController {
   }
 
   @Patch('orders/:id/complete')
-  @LogActivity('UPDATE', 'DATA', { resourceType: 'ORDER' })
+  @LogActivity(ActivityAction.UPDATE, ActivityCategory.DATA, {
+    resourceType: 'ORDER',
+  })
   async completeOrder(
     @Param('id') id: string,
     @Query('cafeId') cafeId: string,
@@ -189,7 +197,9 @@ export class CafeWorkerController {
   }
 
   @Patch('orders/:id/cancel')
-  @LogActivity('UPDATE', 'DATA', { resourceType: 'ORDER' })
+  @LogActivity(ActivityAction.UPDATE, ActivityCategory.DATA, {
+    resourceType: 'ORDER',
+  })
   async cancelOrder(
     @Param('id') id: string,
     @Body() dto: CancelOrderDto,

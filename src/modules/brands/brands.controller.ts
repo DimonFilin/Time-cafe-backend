@@ -22,7 +22,6 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
-  ApiHeader,
   ApiConsumes,
   ApiBody,
 } from '@nestjs/swagger';
@@ -35,10 +34,6 @@ import { DocumentResponseDto } from './dto/document-response.dto';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { VerifyDocumentDto } from './dto/verify-document.dto';
 import { UpdateCustomizationDto } from './dto/update-customization.dto';
-import { CreateApiKeyDto } from './dto/create-api-key.dto';
-import { UpdateApiKeyDto } from './dto/update-api-key.dto';
-import { ApiKeyResponseDto } from './dto/api-key-response.dto';
-import { CreateApiKeyResponseDto } from './dto/create-api-key-response.dto';
 import { RejectBrandDto } from './dto/reject-brand.dto';
 import { SuspendBrandDto } from './dto/suspend-brand.dto';
 import { BrandStatus } from '@prisma/client';
@@ -138,14 +133,7 @@ export class BrandsController {
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Create brand',
-    description:
-      'Create a new brand. Requires SYSTEM_ADMIN role. API key support will be added in future.',
-  })
-  @ApiHeader({
-    name: 'X-API-Key',
-    description:
-      'API key for brand creation (optional, for future implementation)',
-    required: false,
+    description: 'Create a new brand. Requires SYSTEM_ADMIN role.',
   })
   @ApiResponse({
     status: 201,
@@ -404,8 +392,13 @@ export class BrandsController {
   async deleteDocument(
     @Param('id') brandId: string,
     @Param('docId') documentId: string,
+    @Request() req: { user?: { sub?: string } },
   ): Promise<void> {
-    return this.brandsService.deleteDocument(brandId, documentId);
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+    return this.brandsService.deleteDocument(brandId, documentId, keycloakId);
   }
 
   @Post(':id/verify')
@@ -588,133 +581,6 @@ export class BrandsController {
     FileValidator.validateImage(file);
 
     return this.brandsService.uploadBanner(brandId, keycloakId, file);
-  }
-
-  @Post(':id/api-keys')
-  @UseGuards(AuthGuard)
-  @ApiBearerAuth()
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create API key for brand (BRAND_ADMIN only)' })
-  @ApiResponse({
-    status: 201,
-    description: 'API key created successfully',
-    type: CreateApiKeyResponseDto,
-  })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - BRAND_ADMIN role required',
-  })
-  @ApiResponse({ status: 404, description: 'Brand not found' })
-  async createApiKey(
-    @Param('id') brandId: string,
-    @Body() createDto: CreateApiKeyDto,
-    @Request() req: { user?: { sub?: string } },
-  ): Promise<CreateApiKeyResponseDto> {
-    const keycloakId = req.user?.sub;
-    if (!keycloakId) {
-      throw new BadRequestException('User ID not found in token');
-    }
-
-    const expiresAt = createDto.expiresAt
-      ? new Date(createDto.expiresAt)
-      : undefined;
-
-    return this.brandsService.createApiKey(
-      brandId,
-      keycloakId,
-      createDto.name,
-      createDto.permissions,
-      expiresAt,
-    );
-  }
-
-  @Get(':id/api-keys')
-  @UseGuards(AuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get all API keys for brand (BRAND_ADMIN only)' })
-  @ApiResponse({
-    status: 200,
-    description: 'List of API keys',
-    type: [ApiKeyResponseDto],
-  })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - BRAND_ADMIN role required',
-  })
-  @ApiResponse({ status: 404, description: 'Brand not found' })
-  async getBrandApiKeys(
-    @Param('id') brandId: string,
-    @Request() req: { user?: { sub?: string } },
-  ): Promise<ApiKeyResponseDto[]> {
-    const keycloakId = req.user?.sub;
-    if (!keycloakId) {
-      throw new BadRequestException('User ID not found in token');
-    }
-
-    return this.brandsService.getBrandApiKeys(brandId, keycloakId);
-  }
-
-  @Patch(':id/api-keys/:keyId')
-  @UseGuards(AuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Update API key (BRAND_ADMIN only)' })
-  @ApiResponse({
-    status: 200,
-    description: 'API key updated successfully',
-    type: ApiKeyResponseDto,
-  })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - BRAND_ADMIN role required',
-  })
-  @ApiResponse({ status: 404, description: 'API key not found' })
-  async updateApiKey(
-    @Param('id') brandId: string,
-    @Param('keyId') keyId: string,
-    @Body() updateDto: UpdateApiKeyDto,
-    @Request() req: { user?: { sub?: string } },
-  ): Promise<ApiKeyResponseDto> {
-    const keycloakId = req.user?.sub;
-    if (!keycloakId) {
-      throw new BadRequestException('User ID not found in token');
-    }
-
-    const expiresAt = updateDto.expiresAt
-      ? new Date(updateDto.expiresAt)
-      : updateDto.expiresAt === null
-        ? null
-        : undefined;
-
-    return this.brandsService.updateApiKey(brandId, keyId, keycloakId, {
-      name: updateDto.name,
-      permissions: updateDto.permissions,
-      isActive: updateDto.isActive,
-      expiresAt,
-    });
-  }
-
-  @Delete(':id/api-keys/:keyId')
-  @UseGuards(AuthGuard)
-  @ApiBearerAuth()
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Revoke API key (BRAND_ADMIN only)' })
-  @ApiResponse({ status: 204, description: 'API key revoked' })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - BRAND_ADMIN role required',
-  })
-  @ApiResponse({ status: 404, description: 'API key not found' })
-  async deleteApiKey(
-    @Param('id') brandId: string,
-    @Param('keyId') keyId: string,
-    @Request() req: { user?: { sub?: string } },
-  ): Promise<void> {
-    const keycloakId = req.user?.sub;
-    if (!keycloakId) {
-      throw new BadRequestException('User ID not found in token');
-    }
-
-    return this.brandsService.deleteApiKey(brandId, keyId, keycloakId);
   }
 
   @Post(':id/reject')
@@ -1021,6 +887,12 @@ export class BrandsController {
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', buffer.length.toString());
+
+    await this.brandsService.logMyBrandReportExport(
+      keycloakId,
+      accountId,
+      exportFormat,
+    );
 
     res.send(buffer);
   }

@@ -2,14 +2,21 @@
 
 Модуль для логирования действий работников (WorkerAccount) в системе.
 
+## Политика
+
+- **Один канал на операцию**: либо `@LogActivity` на контроллере, либо явный `activityLogsService.log` в сервисе — не дублировать успешный лог дважды.
+- **Severity при ошибках в декораторе**: см. `activity-log-policy.ts` — статус HTTP влияет на `WARNING` vs `CRITICAL`.
+- **Контекст работника**: глобальный `WorkerContextInterceptor` дополняет `req.user` на выбранных путях (см. `WorkerContextService.shouldEnrichPath`).
+
 ## Что логируется
 
-- ✅ Логин/логаут работников
-- ✅ Создание/изменение/удаление данных
-- ✅ Просмотр важных разделов
-- ✅ Изменение настроек
-- ✅ Финансовые операции
+- ✅ Логин / refresh токена / клиентский логаут (beacon)
+- ✅ Создание/изменение/удаление данных (в т.ч. бренды, меню, order-chat, брони, платежи)
+- ✅ Просмотр важных разделов и журнала активности
+- ✅ Изменение настроек (бренд, order-chat)
+- ✅ Финансовые операции (возврат транзакции)
 - ✅ Загрузка/удаление файлов
+- ✅ Клиентские UI-события (admin-web): `PAGE_VIEW`, `TAB_SWITCH`, `MODAL_OPEN`
 
 ## Использование
 
@@ -143,6 +150,23 @@ await this.activityLogsService.log({
 
 ## API Endpoints
 
+### POST /activity-logs
+
+Создать запись от клиента (навигация SPA, модалки и т.д.). Нужен JWT; для выбранного аккаунта — cookie `tc_account_id`. Тело соответствует `CreateActivityLogRequestDto`.
+
+Пример:
+
+```json
+{
+  "action": "PAGE_VIEW",
+  "category": "VIEW",
+  "resourceType": "NAV_PAGE",
+  "details": { "path": "/brand-admin" }
+}
+```
+
+В проекте admin-web вызывается через `POST /api/activity-logs` (Next.js route с refresh cookie).
+
 ### GET /activity-logs
 
 Получить логи с фильтрацией:
@@ -244,7 +268,7 @@ constructor(
 - `VIEW_LIST` - Просмотр списка
 - `VIEW_DETAIL` - Просмотр деталей
 - `VIEW_REPORT` - Просмотр отчета
-- `EXPORT_DATA` - Экспорт данных
+- `PAGE_VIEW` / `MODAL_OPEN` / `MODAL_CLOSE` / `TAB_SWITCH` — навигация и UI (часто с фронта через POST)
 - `UPDATE_SETTINGS` - Изменение настроек
 - `UPDATE_PERMISSIONS` - Изменение прав
 - `FILE_UPLOAD` - Загрузка файла
@@ -276,15 +300,10 @@ constructor(
 
 ## Что дальше
 
-1. ✅ Базовая структура создана
-2. ✅ Логирование логина работников
-3. ✅ Декоратор для удобного использования
-4. ✅ API endpoints для просмотра логов
-5. ⏳ Добавить логирование в остальные контроллеры
-6. ⏳ Создать cleanup service для удаления старых логов
-7. ⏳ Добавить frontend для просмотра логов
-8. ⏳ Добавить экспорт в CSV
-9. ⏳ Добавить real-time уведомления
+1. ✅ Базовая структура и покрытие по матрице отчёта
+2. ⏳ При необходимости: `PASSWORD_CHANGE`, `MODAL_CLOSE`, `UPDATE_PERMISSIONS`, `BULK_DELETE`
+3. ⏳ Cleanup старых логов / retention
+4. ⏳ Real-time уведомления
 
 ## Примеры для разных модулей
 
