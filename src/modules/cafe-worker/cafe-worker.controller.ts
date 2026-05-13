@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { CafeWorkerService } from './cafe-worker.service';
 import { CancelOrderDto } from './dto/cancel-order.dto';
+import { ToggleShiftStatusDto } from './dto/toggle-shift.dto';
 import { AuthGuard, Unprotected } from 'nest-keycloak-connect';
 import { LogActivity } from '../../common/decorators/log-activity.decorator';
 import { OrderStatus, ActivityAction, ActivityCategory } from '@prisma/client';
@@ -73,6 +74,7 @@ export class CafeWorkerController {
 
   @Patch('shift-status')
   async toggleShiftStatus(
+    @Body() body: ToggleShiftStatusDto,
     @Req()
     req?: {
       user?: { sub?: string; id?: string };
@@ -98,7 +100,32 @@ export class CafeWorkerController {
       throw new ForbiddenException('Worker ID not found');
     }
 
-    return this.cafeWorkerService.toggleShiftStatus(workerId);
+    return this.cafeWorkerService.toggleShiftStatus(workerId, body);
+  }
+
+  @Get('me/schedule')
+  async getMySchedule(
+    @Req()
+    req?: {
+      user?: { sub?: string; id?: string };
+      cookies?: { tc_account_id?: string };
+      headers?: { cookie?: string };
+    },
+  ) {
+    let workerId = req?.user?.id;
+    if (!workerId) {
+      workerId =
+        req?.cookies?.tc_account_id ??
+        req?.headers?.cookie
+          ?.split(';')
+          .map((p) => p.trim())
+          .find((p) => p.startsWith('tc_account_id='))
+          ?.split('=')[1];
+    }
+    if (!workerId) {
+      throw new ForbiddenException('Worker ID not found');
+    }
+    return this.cafeWorkerService.getMySchedule(workerId);
   }
 
   @Get('me')

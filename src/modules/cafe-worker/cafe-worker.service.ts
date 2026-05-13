@@ -2,10 +2,22 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OrderStatus, LogSeverity } from '@prisma/client';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import {
+  parseWorkerShiftSchedule,
+  isWeeklyShiftScheduleEmpty,
+  isCafeOpeningHoursSet,
+  buildEffectiveScheduleWindow,
+  mskYmdFromDate,
+  mskAddDays,
+  needsConfirmShiftOn,
+  needsConfirmShiftOff,
+} from '../../common/worker-schedule/worker-schedule.lib';
 
 @Injectable()
 export class CafeWorkerService {
@@ -211,8 +223,52 @@ export class CafeWorkerService {
     });
   }
 
+  async getMySchedule(workerId: string) {
+    const worker = await this.prisma.workerAccount.findUnique({
+      where: { id: workerId },
+      select: {
+        id: true,
+        shiftSchedule: true,
+        cafeId: true,
+        cafe: { select: { id: true, name: true, openingHours: true } },
+        scheduleAbsences: {
+          orderBy: { startDate: 'asc' },
+        },
+      },
+    });
+    if (!worker) {
+      throw new NotFoundException('Worker not found');
+    }
+    const openingHours = worker.cafe?.openingHours ?? null;
+    const cafeSet = isCafeOpeningHoursSet(openingHours);
+    const todayMsk = mskYmdFromDate(new Date());
+    const fromYmd = mskAddDays(todayMsk, -1);
+    const workerParsed = parseWorkerShiftSchedule(worker.shiftSchedule);
+    const segments = buildEffectiveScheduleWindow({
+      fromYmd,
+      days: 16,
+      workerSchedule: workerParsed,
+      cafeOpeningHours: openingHours,
+      absences: worker.scheduleAbsences.map((a) => ({
+        startDate: a.startDate,
+        endDate: a.endDate,
+      })),
+    });
+    return {
+      todayMsk,
+      cafeScheduleStatus: cafeSet ? 'SET' : 'NOT_SET',
+      cafe: worker.cafe ? { id: worker.cafe.id, name: worker.cafe.name } : null,
+      shiftSchedule: worker.shiftSchedule,
+      absences: worker.scheduleAbsences,
+      effectiveSegments: segments,
+    };
+  }
+
   // Переключить статус смены работника
-  async toggleShiftStatus(workerId: string) {
+  async toggleShiftStatus(
+    workerId: string,
+    dto?: { confirmOutsideSchedule?: boolean },
+  ) {
     const worker = await this.prisma.workerAccount.findUnique({
       where: { id: workerId },
       select: {
@@ -224,11 +280,53 @@ export class CafeWorkerService {
         role: true,
         brandId: true,
         cafeId: true,
+        shiftSchedule: true,
+        cafe: { select: { openingHours: true } },
+        scheduleAbsences: true,
       },
     });
 
     if (!worker) {
       throw new NotFoundException('Worker not found');
+    }
+
+    const goingOnShift = worker.shiftStatus === 'OFF_SHIFT';
+    const openingHours = worker.cafe?.openingHours ?? null;
+    const workerParsed = parseWorkerShiftSchedule(worker.shiftSchedule);
+    const cafeSet = isCafeOpeningHoursSet(openingHours);
+    const workerEmpty = isWeeklyShiftScheduleEmpty(workerParsed);
+    const skipScheduleConfirm = !cafeSet && workerEmpty;
+
+    if (!skipScheduleConfirm) {
+      const todayMsk = mskYmdFromDate(new Date());
+      const fromYmd = mskAddDays(todayMsk, -1);
+      const eff = buildEffectiveScheduleWindow({
+        fromYmd,
+        days: 3,
+        workerSchedule: workerParsed,
+        cafeOpeningHours: openingHours,
+        absences: worker.scheduleAbsences.map((a) => ({
+          startDate: a.startDate,
+          endDate: a.endDate,
+        })),
+      });
+      if (eff.length > 0) {
+        const now = new Date();
+        const need = goingOnShift
+          ? needsConfirmShiftOn(now, eff)
+          : needsConfirmShiftOff(now, eff);
+        if (need && !dto?.confirmOutsideSchedule) {
+          throw new HttpException(
+            {
+              requireConfirm: true,
+              code: 'SHIFT_OUTSIDE_SCHEDULE_WINDOW',
+              message:
+                'Подтвердите переключение смены: время вне окна ±10 минут от графика.',
+            },
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+      }
     }
 
     const newStatus =

@@ -8,6 +8,7 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { UpdateCafeDto } from '../dto/update-cafe.dto';
 import { UpdateCafeScheduleDto } from '../dto/update-cafe-schedule.dto';
+import { timeToMinutes } from '../../../common/worker-schedule/worker-schedule.lib';
 
 @Injectable()
 export class CafeAdminCafeService {
@@ -183,9 +184,11 @@ export class CafeAdminCafeService {
         );
       }
 
-      if (schedule.open >= schedule.close) {
+      const openM = timeToMinutes(schedule.open);
+      const closeM = timeToMinutes(schedule.close);
+      if (openM === closeM) {
         throw new BadRequestException(
-          `Opening time must be before closing time for ${day}`,
+          `Open and close must differ for ${day} when the cafe is not closed`,
         );
       }
     }

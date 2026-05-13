@@ -15,6 +15,7 @@ model WorkerAccount {
   lastName             String
   role                 WorkerRole
   shiftStatus          WorkerShiftStatus @default(OFF_SHIFT)
+  shiftSchedule        Json?
   brandId              String?
   cafeId               String?
   deletedAt            DateTime?
@@ -26,10 +27,25 @@ model WorkerAccount {
   chatMessages         OrderChatMessage[]
   chatReadStates       OrderChatReadState[]
   chatTypingStates     OrderChatTypingState[]
+  scheduleAbsences     WorkerScheduleAbsence[]
   brand                Brand?            @relation(fields: [brandId], references: [id])
   cafe                 Cafe?             @relation(fields: [cafeId], references: [id])
 
   @@map("worker_accounts")
+}
+
+model WorkerScheduleAbsence {
+  id                String                     @id @default(uuid())
+  workerId          String
+  startDate         DateTime
+  endDate           DateTime
+  kind              WorkerScheduleAbsenceKind
+  createdAt         DateTime                   @default(now())
+  createdByWorkerId String?
+  worker            WorkerAccount              @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@index([workerId, startDate])
+  @@map("worker_schedule_absences")
 }
 
 model User {
@@ -584,6 +600,11 @@ enum Gender {
 enum WorkerShiftStatus {
   ON_SHIFT
   OFF_SHIFT
+}
+
+enum WorkerScheduleAbsenceKind {
+  VACATION
+  SICK_LEAVE
 }
 
 enum OrderStatus {

@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Put,
   Delete,
   Body,
   Param,
@@ -26,6 +27,10 @@ import { InviteWorkerDto } from './dto/invite-worker.dto';
 import { UpdateWorkerDto } from './dto/update-worker.dto';
 import { UpdateCafeDto } from './dto/update-cafe.dto';
 import { UpdateCafeScheduleDto } from './dto/update-cafe-schedule.dto';
+import {
+  CreateWorkerScheduleAbsenceDto,
+  UpdateWorkerShiftScheduleDto,
+} from './dto/worker-shift-schedule.dto';
 import { LogActivity } from '../../common/decorators/log-activity.decorator';
 import { ActivityAction, ActivityCategory, WorkerRole } from '@prisma/client';
 import type { Request as ExpressRequest } from 'express';
@@ -297,6 +302,68 @@ export class CafeAdminController {
       details: { cafeId },
     });
     return data;
+  }
+
+  @Get('workers/:id/shift-schedule')
+  @ApiOperation({ summary: 'Get worker weekly shift template and absences' })
+  async getWorkerShiftSchedule(
+    @Request() req: CafeAdminRequest,
+    @Param('id') workerId: string,
+  ) {
+    const { cafeId } = await this.enrichRequest(req);
+    return this.workersService.getShiftSchedule(cafeId, workerId);
+  }
+
+  @Put('workers/:id/shift-schedule')
+  @ApiOperation({ summary: 'Replace worker weekly shift template (7 days)' })
+  async putWorkerShiftSchedule(
+    @Request() req: CafeAdminRequest,
+    @Param('id') workerId: string,
+    @Body() dto: UpdateWorkerShiftScheduleDto,
+  ) {
+    const { cafeId } = await this.enrichRequest(req);
+    return this.workersService.updateShiftSchedule(cafeId, workerId, dto);
+  }
+
+  @Get('workers/:id/schedule-absences')
+  @ApiOperation({ summary: 'List vacation / sick absences for worker' })
+  async listWorkerScheduleAbsences(
+    @Request() req: CafeAdminRequest,
+    @Param('id') workerId: string,
+  ) {
+    const { cafeId } = await this.enrichRequest(req);
+    return this.workersService.listScheduleAbsences(cafeId, workerId);
+  }
+
+  @Post('workers/:id/schedule-absences')
+  @ApiOperation({ summary: 'Add vacation / sick absence range' })
+  async createWorkerScheduleAbsence(
+    @Request() req: CafeAdminRequest,
+    @Param('id') workerId: string,
+    @Body() dto: CreateWorkerScheduleAbsenceDto,
+  ) {
+    const { cafeId, worker } = await this.enrichRequest(req);
+    return this.workersService.createScheduleAbsence(
+      cafeId,
+      workerId,
+      dto,
+      String(worker.id),
+    );
+  }
+
+  @Delete('workers/:id/schedule-absences/:absenceId')
+  @ApiOperation({ summary: 'Remove absence range' })
+  async deleteWorkerScheduleAbsence(
+    @Request() req: CafeAdminRequest,
+    @Param('id') workerId: string,
+    @Param('absenceId') absenceId: string,
+  ) {
+    const { cafeId } = await this.enrichRequest(req);
+    return this.workersService.deleteScheduleAbsence(
+      cafeId,
+      workerId,
+      absenceId,
+    );
   }
 
   @Patch('workers/:id')
