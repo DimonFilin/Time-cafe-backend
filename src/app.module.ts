@@ -25,6 +25,7 @@ import { CafeAdminModule } from './modules/cafe-admin/cafe-admin.module';
 import { MenuModule } from './modules/menu/menu.module';
 import { OrderChatModule } from './modules/order-chat/order-chat.module';
 import { WorkerContextModule } from './common/worker-context/worker-context.module';
+import { CafeLayoutModule } from './modules/cafe-layout/cafe-layout.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { WorkerContextModule } from './common/worker-context/worker-context.modu
     CafeAdminModule,
     MenuModule,
     OrderChatModule,
+    CafeLayoutModule,
   ],
   controllers: [AppController],
   providers: [AppService],

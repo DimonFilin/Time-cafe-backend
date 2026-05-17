@@ -24,6 +24,12 @@ import {
   ActivityCategory,
 } from '@prisma/client';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import {
+  billingModesAvailable,
+  calculateRoomBookingPrice,
+  parseRoomBilling,
+  type RoomBillingMode,
+} from '../cafe-layout/room-billing.util';
 
 @Injectable()
 export class AppointmentsService {
@@ -117,15 +123,108 @@ export class AppointmentsService {
     }
   }
 
-  /**
-   * Calculate appointment cost (if applicable)
-   */
-  private calculateAppointmentCost(duration: number): number {
-    // For now, appointments are free, but this can be extended
-    if (duration < 60) {
-      return 0;
+  private rangesOverlap(
+    aStart: Date,
+    aDurationMin: number,
+    bStart: Date,
+    bDurationMin: number,
+  ) {
+    const aEnd = new Date(aStart.getTime() + aDurationMin * 60000);
+    const bEnd = new Date(bStart.getTime() + bDurationMin * 60000);
+    return aStart < bEnd && bStart < aEnd;
+  }
+
+  private async checkRoomAvailability(
+    roomId: string,
+    dateTime: Date,
+    duration: number,
+    excludeAppointmentId?: string,
+  ) {
+    const from = new Date(dateTime.getTime() - 24 * 60 * 60000);
+    const to = new Date(dateTime.getTime() + 24 * 60 * 60000);
+    const candidates = await this.prisma.appointment.findMany({
+      where: {
+        roomId,
+        status: { in: ['pending', 'confirmed'] },
+        dateTime: { gte: from, lte: to },
+        ...(excludeAppointmentId ? { id: { not: excludeAppointmentId } } : {}),
+      },
+      select: { dateTime: true, duration: true },
+    });
+    const conflict = candidates.some((c) =>
+      this.rangesOverlap(dateTime, duration, c.dateTime, c.duration),
+    );
+    if (conflict) {
+      throw new ConflictException('Room time slot is not available');
     }
-    return 100;
+  }
+
+  private async reserveSharedAssetsForAppointment(params: {
+    appointmentId: string;
+    cafeId: string;
+    roomId: string;
+    dateTime: Date;
+    duration: number;
+    selectedSharedAssetIds?: string[];
+  }) {
+    const ids = params.selectedSharedAssetIds ?? [];
+    if (!ids.length) return;
+    const endAt = new Date(params.dateTime.getTime() + params.duration * 60000);
+    await this.prisma.$transaction(async (tx) => {
+      for (const assetId of ids) {
+        const asset = await tx.cafeSharedAsset.findFirst({
+          where: { id: assetId, cafeId: params.cafeId, isActive: true },
+        });
+        if (!asset)
+          throw new BadRequestException(`Shared asset not found: ${assetId}`);
+        const reservations = await tx.cafeSharedAssetReservation.findMany({
+          where: {
+            sharedAssetId: assetId,
+            startAt: { lt: endAt },
+            endAt: { gt: params.dateTime },
+          },
+          select: { quantity: true },
+        });
+        const reserved = reservations.reduce((sum, r) => sum + r.quantity, 0);
+        if (reserved + 1 > asset.totalQuantity) {
+          throw new ConflictException(
+            `Shared asset is unavailable for selected slot: ${asset.name}`,
+          );
+        }
+        await tx.cafeSharedAssetReservation.create({
+          data: {
+            cafeId: params.cafeId,
+            sharedAssetId: assetId,
+            appointmentId: params.appointmentId,
+            roomId: params.roomId,
+            startAt: params.dateTime,
+            endAt,
+            quantity: 1,
+          },
+        });
+      }
+    });
+  }
+
+  private resolveBillingMode(
+    requested: RoomBillingMode | undefined,
+    settings: ReturnType<typeof parseRoomBilling>,
+  ): RoomBillingMode {
+    const modes = billingModesAvailable(settings);
+    if (!modes.length) {
+      throw new BadRequestException('Room has no billing modes configured');
+    }
+    if (requested && modes.includes(requested)) return requested;
+    if (modes.includes('HOURLY')) return 'HOURLY';
+    return modes[0];
+  }
+
+  private calculateAppointmentCost(
+    duration: number,
+    billingMode: RoomBillingMode,
+    settings: ReturnType<typeof parseRoomBilling>,
+  ): number {
+    return calculateRoomBookingPrice(duration, billingMode, settings);
   }
 
   /**
@@ -171,15 +270,37 @@ export class AppointmentsService {
       throw new BadRequestException('Appointment date must be in the future');
     }
 
-    // Temporarily disabled: time slot availability check
-    // await this.checkTimeSlotAvailability(
-    //   createDto.cafeId,
-    //   dateTime,
-    //   createDto.duration,
-    // );
+    const room = await this.prisma.cafeRoom.findFirst({
+      where: {
+        id: createDto.roomId,
+        cafeId: createDto.cafeId,
+        status: 'ACTIVE',
+      },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        imageUrl: true,
+        capacity: true,
+        metadata: true,
+      },
+    });
+    if (!room) {
+      throw new BadRequestException('Room not found in selected cafe');
+    }
+    await this.checkRoomAvailability(
+      createDto.roomId,
+      dateTime,
+      createDto.duration,
+    );
 
-    // Calculate cost
-    const totalAmount = this.calculateAppointmentCost(createDto.duration);
+    const billing = parseRoomBilling(room.metadata);
+    const billingMode = this.resolveBillingMode(createDto.billingMode, billing);
+    const totalAmount = this.calculateAppointmentCost(
+      createDto.duration,
+      billingMode,
+      billing,
+    );
 
     // Handle payment if required
     let transactionId: string | undefined;
@@ -210,6 +331,7 @@ export class AppointmentsService {
       data: {
         userId: user.id,
         cafeId: createDto.cafeId,
+        roomId: createDto.roomId,
         dateTime,
         duration: createDto.duration,
         totalAmount,
@@ -217,6 +339,18 @@ export class AppointmentsService {
         transactionId,
         qrCode: this.generateQrCode(),
         notes: createDto.notes,
+        roomSnapshot: {
+          id: room.id,
+          name: room.name,
+          description: room.description,
+          imageUrl: room.imageUrl,
+          capacity: room.capacity,
+          billing,
+          billingMode,
+        },
+        selectedAssets: {
+          sharedAssetIds: createDto.selectedSharedAssetIds ?? [],
+        },
       },
       include: {
         cafe: {
@@ -224,7 +358,19 @@ export class AppointmentsService {
             name: true,
           },
         },
+        room: {
+          select: { id: true, name: true },
+        },
       },
+    });
+
+    await this.reserveSharedAssetsForAppointment({
+      appointmentId: appointment.id,
+      cafeId: createDto.cafeId,
+      roomId: createDto.roomId,
+      dateTime,
+      duration: createDto.duration,
+      selectedSharedAssetIds: createDto.selectedSharedAssetIds,
     });
 
     this.logger.log(
@@ -282,6 +428,12 @@ export class AppointmentsService {
               name: true,
             },
           },
+          room: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
         orderBy: { dateTime: 'desc' },
         take: limit,
@@ -324,6 +476,7 @@ export class AppointmentsService {
             name: true,
           },
         },
+        room: { select: { id: true, name: true } },
       },
     });
 
@@ -358,6 +511,7 @@ export class AppointmentsService {
             name: true,
           },
         },
+        room: { select: { id: true, name: true } },
       },
     });
 
@@ -399,6 +553,7 @@ export class AppointmentsService {
             name: true,
           },
         },
+        room: { select: { id: true, name: true } },
       },
     });
 
@@ -539,6 +694,7 @@ export class AppointmentsService {
               name: true,
             },
           },
+          room: { select: { id: true, name: true } },
           user: {
             select: {
               firstName: true,
@@ -590,6 +746,7 @@ export class AppointmentsService {
             name: true,
           },
         },
+        room: { select: { id: true, name: true } },
         user: {
           select: {
             firstName: true,
@@ -635,6 +792,7 @@ export class AppointmentsService {
             name: true,
           },
         },
+        room: { select: { id: true, name: true } },
       },
     });
 
@@ -656,6 +814,7 @@ export class AppointmentsService {
       data: { status: 'confirmed' },
       include: {
         cafe: { select: { name: true } },
+        room: { select: { id: true, name: true } },
         orders: { select: { id: true } },
       },
     });
@@ -704,6 +863,7 @@ export class AppointmentsService {
       data: { status: 'completed' },
       include: {
         cafe: { select: { name: true } },
+        room: { select: { id: true, name: true } },
         orders: { select: { id: true } },
       },
     });
@@ -733,6 +893,7 @@ export class AppointmentsService {
       where: { id: appointmentId },
       include: {
         cafe: { select: { name: true } },
+        room: { select: { id: true, name: true } },
       },
     });
 
@@ -758,6 +919,7 @@ export class AppointmentsService {
       },
       include: {
         cafe: { select: { name: true } },
+        room: { select: { id: true, name: true } },
         orders: { select: { id: true } },
       },
     });
@@ -831,6 +993,8 @@ export class AppointmentsService {
       };
       cafeId: string;
       cafe?: { name?: string };
+      roomId?: string | null;
+      room?: { id?: string; name?: string };
       dateTime: Date;
       duration: number;
       status: string;
@@ -840,6 +1004,8 @@ export class AppointmentsService {
       transactionId: string;
       orders?: Array<{ id: string }>;
       notes: string;
+      roomSnapshot?: unknown;
+      selectedAssets?: unknown;
       createdAt: Date;
       updatedAt: Date;
     };
@@ -866,6 +1032,8 @@ export class AppointmentsService {
           : undefined,
       cafeId: app.cafeId,
       cafeName: app.cafe?.name,
+      roomId: app.roomId ?? app.room?.id,
+      roomName: app.room?.name,
       dateTime: app.dateTime,
       duration: app.duration,
       status: app.status,
@@ -881,6 +1049,14 @@ export class AppointmentsService {
       orderId,
       orderIds: orderIds.length ? orderIds : undefined,
       notes: app.notes,
+      roomSnapshot:
+        app.roomSnapshot && typeof app.roomSnapshot === 'object'
+          ? (app.roomSnapshot as Record<string, unknown>)
+          : undefined,
+      selectedAssets:
+        app.selectedAssets && typeof app.selectedAssets === 'object'
+          ? (app.selectedAssets as Record<string, unknown>)
+          : undefined,
       createdAt: app.createdAt,
       updatedAt: app.updatedAt,
     };

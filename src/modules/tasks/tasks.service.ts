@@ -31,6 +31,28 @@ interface TaskTemplateWithRelations extends TaskTemplate {
   } | null;
 }
 
+/** Parse YYYY-MM-DD as local calendar date (avoids UTC shift on date-only strings). */
+function parseDateYmd(date: string): Date {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+/** daysOfWeek in DB/API: 1=Mon … 7=Sun */
+function dayOfWeekIso(date: string): number {
+  const jsDay = parseDateYmd(date).getDay();
+  return jsDay === 0 ? 7 : jsDay;
+}
+
+function dateRangeYmd(
+  fromDate: string,
+  toDate: string,
+): { gte: Date; lte: Date } {
+  const gte = parseDateYmd(fromDate);
+  const lte = parseDateYmd(toDate);
+  lte.setHours(23, 59, 59, 999);
+  return { gte, lte };
+}
+
 @Injectable()
 export class TasksService {
   constructor(
@@ -350,9 +372,8 @@ export class TasksService {
     cafeId: string,
     date: string, // YYYY-MM-DD
   ): Promise<WorkerTasksResponseDto> {
-    // Parse date and get day of week (0=Sun, 1=Mon, ..., 6=Sat)
-    const targetDate = new Date(date);
-    const dayOfWeek = targetDate.getDay(); // Keep JavaScript format: 0=Sunday, 6=Saturday
+    const targetDate = parseDateYmd(date);
+    const dayOfWeek = dayOfWeekIso(date);
 
     // Get worker info
     const worker = await this.prisma.workerAccount.findUnique({
@@ -501,8 +522,7 @@ export class TasksService {
       throw new BadRequestException('Comment is required for this task');
     }
 
-    // Parse completion date
-    const completionDate = new Date(dto.completionDate);
+    const completionDate = parseDateYmd(dto.completionDate);
 
     // Create completion (unique constraint will prevent duplicates)
     try {
@@ -564,7 +584,7 @@ export class TasksService {
     workerId: string,
     date: string,
   ): Promise<void> {
-    const completionDate = new Date(date);
+    const completionDate = parseDateYmd(date);
 
     // Find completion
     const completion = await this.prisma.taskCompletion.findUnique({
@@ -615,8 +635,7 @@ export class TasksService {
     toDate: string,
     actorWorkerId?: string,
   ): Promise<TaskStatisticsResponseDto> {
-    const from = new Date(fromDate);
-    const to = new Date(toDate);
+    const { gte: from, lte: to } = dateRangeYmd(fromDate, toDate);
 
     // Get all completions in date range
     const completions = await this.prisma.taskCompletion.findMany({
@@ -760,8 +779,7 @@ export class TasksService {
     // Verify template belongs to cafe
     await this.getTemplateById(templateId, cafeId);
 
-    const from = new Date(fromDate);
-    const to = new Date(toDate);
+    const { gte: from, lte: to } = dateRangeYmd(fromDate, toDate);
 
     // Get total count
     const total = await this.prisma.taskCompletion.count({

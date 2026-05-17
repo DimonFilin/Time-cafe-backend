@@ -8,6 +8,7 @@ import {
   Min,
   Max,
   IsUUID,
+  IsArray,
 } from 'class-validator';
 
 export class CreateAppointmentDto {
@@ -17,6 +18,13 @@ export class CreateAppointmentDto {
   })
   @IsUUID()
   cafeId: string;
+
+  @ApiProperty({
+    description: 'ID комнаты для бронирования',
+    example: '550e8400-e29b-41d4-a716-446655440005',
+  })
+  @IsUUID()
+  roomId: string;
 
   @ApiProperty({
     description: 'Дата и время бронирования (ISO 8601)',
@@ -60,4 +68,24 @@ export class CreateAppointmentDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({
+    description: 'Выбранные общие предметы кафе',
+    type: [String],
+    example: ['asset-chess-id', 'asset-checkers-id'],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  selectedSharedAssetIds?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'Тарификация: почасовая (с округлением вверх до часа) или поминутная',
+    enum: ['HOURLY', 'MINUTE'],
+    example: 'HOURLY',
+  })
+  @IsOptional()
+  @IsIn(['HOURLY', 'MINUTE'])
+  billingMode?: 'HOURLY' | 'MINUTE';
 }

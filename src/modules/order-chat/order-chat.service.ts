@@ -545,6 +545,7 @@ export class OrderChatService {
               totalAmount: true,
               createdAt: true,
               appointmentId: true,
+              roomSnapshot: true,
               user: {
                 select: {
                   id: true,

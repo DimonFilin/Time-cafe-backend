@@ -136,11 +136,19 @@ model Cafe {
   regionId       String
   cafeApiUrl     String?
   openingHours   Json?
+  layoutVersion  Int             @default(1)
+  occupancyMode  String          @default("PERCENT")
   deletedAt      DateTime?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   activityLogs   ActivityLog[]
   appointments   Appointment[]
+  layouts        CafeLayout[]
+  rooms          CafeRoom[]
+  layoutElements CafeLayoutElement[]
+  roomAssets     CafeRoomAsset[]
+  sharedAssets   CafeSharedAsset[]
+  sharedAssetReservations CafeSharedAssetReservation[]
   brand          Brand           @relation(fields: [brandId], references: [id])
   region         Region          @relation(fields: [regionId], references: [id])
   orders         Order[]
@@ -224,6 +232,7 @@ model Order {
   review             Review?
   transactions       Transaction[]
   chat               OrderChat?
+  roomSnapshot       Json?
 
   @@index([userId, createdAt])
   @@index([cafeId, status])
@@ -278,6 +287,7 @@ model Appointment {
   id            String   @id @default(uuid())
   userId        String
   cafeId        String
+  roomId        String?
   dateTime      DateTime
   duration      Int
   status        String   @default("pending")
@@ -286,13 +296,137 @@ model Appointment {
   paymentMethod String?
   transactionId String?
   notes         String?
+  roomSnapshot  Json?
+  selectedAssets Json?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   cafe          Cafe     @relation(fields: [cafeId], references: [id])
+  room          CafeRoom? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  sharedAssetReservations CafeSharedAssetReservation[]
   user          User     @relation(fields: [userId], references: [id])
   orders        Order[]
 
+  @@index([cafeId, dateTime, status])
+  @@index([roomId, dateTime, status])
   @@map("appointments")
+}
+
+model CafeLayout {
+  id          String   @id @default(uuid())
+  cafeId      String
+  version     Int      @default(1)
+  title       String
+  schema      Json
+  previewUrl  String?
+  isPublished Boolean  @default(false)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  cafe        Cafe     @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+
+  @@index([cafeId, isPublished, updatedAt])
+  @@map("cafe_layouts")
+}
+
+model CafeRoom {
+  id               String             @id @default(uuid())
+  cafeId           String
+  name             String
+  description      String?
+  imageUrl         String?
+  capacity         Int                @default(0)
+  workingHours     Json?
+  geometry         Json?
+  status           String             @default("ACTIVE")
+  metadata         Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  appointments     Appointment[]
+  assets           CafeRoomAsset[]
+  layoutElements   CafeLayoutElement[]
+  sharedAssetReservations CafeSharedAssetReservation[]
+  cafe             Cafe               @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+
+  @@unique([cafeId, name])
+  @@index([cafeId, status])
+  @@map("cafe_rooms")
+}
+
+model CafeLayoutElement {
+  id            String    @id @default(uuid())
+  cafeId        String
+  roomId        String?
+  elementType   String
+  name          String?
+  geometry      Json
+  props         Json?
+  isOpen        Boolean?
+  description   String?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  cafe          Cafe      @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  room          CafeRoom? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@index([cafeId, elementType])
+  @@index([roomId])
+  @@map("cafe_layout_elements")
+}
+
+model CafeRoomAsset {
+  id          String   @id @default(uuid())
+  cafeId      String
+  roomId      String
+  name        String
+  description String?
+  quantity    Int      @default(1)
+  isActive    Boolean  @default(true)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  cafe        Cafe     @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  room        CafeRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([cafeId, roomId, isActive])
+  @@map("cafe_room_assets")
+}
+
+model CafeSharedAsset {
+  id            String                     @id @default(uuid())
+  cafeId        String
+  name          String
+  description   String?
+  totalQuantity Int                        @default(1)
+  isActive      Boolean                    @default(true)
+  metadata      Json?
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+  cafe          Cafe                       @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  reservations  CafeSharedAssetReservation[]
+
+  @@index([cafeId, isActive])
+  @@map("cafe_shared_assets")
+}
+
+model CafeSharedAssetReservation {
+  id            String          @id @default(uuid())
+  cafeId        String
+  sharedAssetId String
+  appointmentId String?
+  roomId        String?
+  startAt       DateTime
+  endAt         DateTime
+  quantity      Int             @default(1)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  cafe          Cafe            @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+  room          CafeRoom?       @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  appointment   Appointment?    @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  sharedAsset   CafeSharedAsset @relation(fields: [sharedAssetId], references: [id], onDelete: Cascade)
+
+  @@index([cafeId, startAt, endAt])
+  @@index([sharedAssetId, startAt, endAt])
+  @@map("cafe_shared_asset_reservations")
 }
 
 model PaymentCard {

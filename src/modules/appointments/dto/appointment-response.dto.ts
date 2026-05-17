@@ -40,6 +40,18 @@ export class AppointmentResponseDto {
   cafeId: string;
 
   @ApiPropertyOptional({
+    description: 'ID комнаты',
+    example: '550e8400-e29b-41d4-a716-446655440005',
+  })
+  roomId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Название комнаты',
+    example: 'Main Hall',
+  })
+  roomName?: string;
+
+  @ApiPropertyOptional({
     description: 'Название кофейни',
     example: 'Starbucks Central',
   })
@@ -106,6 +118,18 @@ export class AppointmentResponseDto {
     example: 'Столик у окна для 4 человек',
   })
   notes?: string;
+
+  @ApiPropertyOptional({
+    description: 'Снимок данных комнаты на момент брони',
+    type: Object,
+  })
+  roomSnapshot?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    description: 'Выбранные дополнительные предметы',
+    type: Object,
+  })
+  selectedAssets?: Record<string, unknown>;
 
   @ApiProperty({
     description: 'Дата создания',

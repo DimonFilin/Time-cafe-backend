@@ -4,6 +4,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { TransactionStatus, TransactionType } from '@prisma/client';
+import { cleanupTestData } from './setup';
 
 interface CardResponse {
   id: string;
@@ -68,96 +69,7 @@ describe('Payments Endpoints (e2e)', () => {
 
   afterAll(async () => {
     if (prisma) {
-      // Hard delete all test data in correct order (dependencies first)
-      await prisma.order.deleteMany({
-        where: {
-          OR: [
-            { user: { email: { contains: '@example.com' } } },
-            { user: { email: { contains: 'test-' } } },
-            { cafe: { name: { contains: 'Test' } } },
-          ],
-        },
-      });
-      await prisma.transaction.deleteMany({
-        where: {
-          OR: [
-            { user: { email: { contains: '@example.com' } } },
-            { user: { email: { contains: 'test-' } } },
-          ],
-        },
-      });
-      await prisma.paymentCard.deleteMany({
-        where: {
-          OR: [
-            { user: { email: { contains: '@example.com' } } },
-            { user: { email: { contains: 'test-' } } },
-          ],
-        },
-      });
-      await prisma.cafe.deleteMany({
-        where: {
-          OR: [
-            { name: { contains: 'Test' } },
-            { brand: { name: { contains: 'Test' } } },
-          ],
-        },
-      });
-      await prisma.brand.deleteMany({
-        where: {
-          OR: [
-            { name: { contains: 'Test' } },
-            { email: { contains: '@test.com' } },
-            { email: { contains: 'test-' } },
-          ],
-        },
-      });
-      await prisma.workerAccount.deleteMany({
-        where: {
-          OR: [
-            { email: { contains: '@example.com' } },
-            { email: { contains: 'test-' } },
-            { email: { contains: '@test.com' } },
-          ],
-        },
-      });
-      await prisma.transaction.deleteMany({
-        where: {
-          OR: [
-            { user: { email: { contains: '@example.com' } } },
-            { user: { email: { contains: 'test-' } } },
-            { user: { email: { contains: '@test.com' } } },
-          ],
-        },
-      });
-      await prisma.paymentCard.deleteMany({
-        where: {
-          OR: [
-            { user: { email: { contains: '@example.com' } } },
-            { user: { email: { contains: 'test-' } } },
-            { user: { email: { contains: '@test.com' } } },
-          ],
-        },
-      });
-      await prisma.review.deleteMany({
-        where: {
-          user: {
-            OR: [
-              { email: { contains: '@example.com' } },
-              { email: { contains: 'test-' } },
-              { email: { contains: '@test.com' } },
-            ],
-          },
-        },
-      });
-      await prisma.user.deleteMany({
-        where: {
-          OR: [
-            { email: { contains: '@example.com' } },
-            { email: { contains: 'test-' } },
-            { email: { contains: '@test.com' } },
-          ],
-        },
-      });
+      await cleanupTestData(prisma);
     }
     // Clean up connections
     await global.cleanupTestConnections();
