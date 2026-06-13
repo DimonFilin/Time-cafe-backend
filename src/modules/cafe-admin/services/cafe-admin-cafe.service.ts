@@ -1,14 +1,12 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { UpdateCafeDto } from '../dto/update-cafe.dto';
 import { UpdateCafeScheduleDto } from '../dto/update-cafe-schedule.dto';
-import { timeToMinutes } from '../../../common/worker-schedule/worker-schedule.lib';
+import {
+  scheduleDtoToJson,
+  validateCafeSchedule,
+} from '../../../common/cafe/cafe-schedule.lib';
 
 @Injectable()
 export class CafeAdminCafeService {
@@ -97,6 +95,11 @@ export class CafeAdminCafeService {
         ...(dto.cafeApiUrl !== undefined && { cafeApiUrl: dto.cafeApiUrl }),
         ...(dto.latitude !== undefined && { latitude: dto.latitude }),
         ...(dto.longitude !== undefined && { longitude: dto.longitude }),
+        ...(dto.phone !== undefined && { phone: dto.phone }),
+        ...(dto.email !== undefined && { email: dto.email }),
+        ...(dto.occupancyMode !== undefined && {
+          occupancyMode: dto.occupancyMode,
+        }),
         ...(chatSettings !== undefined && {
           chatSettings: chatSettings as Prisma.InputJsonValue,
         }),
@@ -109,7 +112,7 @@ export class CafeAdminCafeService {
   }
 
   async updateCafeSchedule(cafeId: string, dto: UpdateCafeScheduleDto) {
-    this.validateSchedule(dto);
+    validateCafeSchedule(dto);
 
     const existing = await this.prisma.cafe.findUnique({
       where: { id: cafeId },
@@ -118,7 +121,7 @@ export class CafeAdminCafeService {
       throw new NotFoundException('Cafe not found');
     }
 
-    const openingHours = this.scheduleDtoToJson(dto);
+    const openingHours = scheduleDtoToJson(dto);
 
     await this.prisma.cafe.update({
       where: { id: cafeId },
@@ -128,69 +131,5 @@ export class CafeAdminCafeService {
     this.logger.log(`Cafe opening hours updated (${cafeId})`);
 
     return this.getMyCafe(cafeId);
-  }
-
-  private scheduleDtoToJson(dto: UpdateCafeScheduleDto): Prisma.InputJsonValue {
-    const days = [
-      'monday',
-      'tuesday',
-      'wednesday',
-      'thursday',
-      'friday',
-      'saturday',
-      'sunday',
-    ] as const;
-
-    const out: Record<
-      string,
-      { open?: string; close?: string; closed?: boolean }
-    > = {};
-    for (const day of days) {
-      const s = dto[day];
-      if (!s) continue;
-      out[day] = {
-        ...(s.open !== undefined ? { open: s.open } : {}),
-        ...(s.close !== undefined ? { close: s.close } : {}),
-        ...(s.closed !== undefined ? { closed: s.closed } : {}),
-      };
-    }
-    return out;
-  }
-
-  private validateSchedule(dto: UpdateCafeScheduleDto) {
-    const days = [
-      'monday',
-      'tuesday',
-      'wednesday',
-      'thursday',
-      'friday',
-      'saturday',
-      'sunday',
-    ] as const;
-
-    for (const day of days) {
-      const schedule = dto[day];
-      if (!schedule) {
-        throw new BadRequestException(`Missing schedule for ${day}`);
-      }
-
-      if (schedule.closed === true) {
-        continue;
-      }
-
-      if (!schedule.open || !schedule.close) {
-        throw new BadRequestException(
-          `Open and close times are required for ${day} when the cafe is not closed`,
-        );
-      }
-
-      const openM = timeToMinutes(schedule.open);
-      const closeM = timeToMinutes(schedule.close);
-      if (openM === closeM) {
-        throw new BadRequestException(
-          `Open and close must differ for ${day} when the cafe is not closed`,
-        );
-      }
-    }
   }
 }

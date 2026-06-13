@@ -8,10 +8,12 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from 'nest-keycloak-connect';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -90,6 +92,29 @@ export class OrderChatController {
     const result = await this.orderChatService.sendMessage(chatId, actor, dto);
     this.orderChatGateway.emitMessageCreated(chatId, result);
     return result.message;
+  }
+
+  @Get(':chatId/attachments/:attachmentId/file')
+  @ApiOperation({
+    summary:
+      'Stream chat attachment image (mobile: avoids presigned localhost / admin media-s3 proxy URLs)',
+  })
+  async streamAttachment(
+    @Req() req: { user?: { sub?: string } },
+    @Param('chatId') chatId: string,
+    @Param('attachmentId') attachmentId: string,
+    @Res({ passthrough: false }) res: Response,
+  ) {
+    const actor = await this.actorFromReq(req);
+    const { data, contentType } =
+      await this.orderChatService.streamAttachmentFile(
+        chatId,
+        attachmentId,
+        actor,
+      );
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(data);
   }
 
   @Post(':chatId/uploads')

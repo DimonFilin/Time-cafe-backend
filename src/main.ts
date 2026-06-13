@@ -87,7 +87,7 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document);
 
   const port = process.env.PORT ?? 3000;
-  await app.listen(port);
-  console.log(`Shared service running on port ${port}`);
+  await app.listen(port, '0.0.0.0');
+  console.log(`Shared service running on http://0.0.0.0:${port}`);
 }
 void bootstrap();

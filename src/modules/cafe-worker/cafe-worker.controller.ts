@@ -1,17 +1,23 @@
 import {
-  Controller,
-  Get,
-  Patch,
-  Param,
+  BadRequestException,
   Body,
-  Query,
-  UseGuards,
-  Req,
+  Controller,
   ForbiddenException,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { CafeWorkerService } from './cafe-worker.service';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { ToggleShiftStatusDto } from './dto/toggle-shift.dto';
+import { UpdateWorkerProfileDto } from './dto/update-worker-profile.dto';
 import { AuthGuard, Unprotected } from 'nest-keycloak-connect';
 import { LogActivity } from '../../common/decorators/log-activity.decorator';
 import { OrderStatus, ActivityAction, ActivityCategory } from '@prisma/client';
@@ -22,6 +28,29 @@ interface RequestWithUser {
   user?: {
     cafeId?: string;
   };
+}
+
+type WorkerRequest = {
+  user?: { sub?: string; id?: string };
+  cookies?: { tc_account_id?: string };
+  headers?: { cookie?: string };
+};
+
+function resolveWorkerId(req?: WorkerRequest): string {
+  let workerId = req?.user?.id;
+  if (!workerId) {
+    workerId =
+      req?.cookies?.tc_account_id ??
+      req?.headers?.cookie
+        ?.split(';')
+        .map((p) => p.trim())
+        .find((p) => p.startsWith('tc_account_id='))
+        ?.split('=')[1];
+  }
+  if (!workerId) {
+    throw new ForbiddenException('Worker ID not found');
+  }
+  return workerId;
 }
 
 @Controller('cafe-worker')
@@ -75,118 +104,45 @@ export class CafeWorkerController {
   @Patch('shift-status')
   async toggleShiftStatus(
     @Body() body: ToggleShiftStatusDto,
-    @Req()
-    req?: {
-      user?: { sub?: string; id?: string };
-      cookies?: { tc_account_id?: string };
-      headers?: { cookie?: string };
-    },
+    @Req() req?: WorkerRequest,
   ) {
-    // Попытка получить workerId из req.user (если доступен)
-    let workerId = req?.user?.id;
-
-    // Если нет в req.user, попробуем из cookie
-    if (!workerId) {
-      workerId =
-        req?.cookies?.tc_account_id ??
-        req?.headers?.cookie
-          ?.split(';')
-          .map((p) => p.trim())
-          .find((p) => p.startsWith('tc_account_id='))
-          ?.split('=')[1];
-    }
-
-    if (!workerId) {
-      throw new ForbiddenException('Worker ID not found');
-    }
-
-    return this.cafeWorkerService.toggleShiftStatus(workerId, body);
+    return this.cafeWorkerService.toggleShiftStatus(resolveWorkerId(req), body);
   }
 
   @Get('me/schedule')
-  async getMySchedule(
-    @Req()
-    req?: {
-      user?: { sub?: string; id?: string };
-      cookies?: { tc_account_id?: string };
-      headers?: { cookie?: string };
-    },
-  ) {
-    let workerId = req?.user?.id;
-    if (!workerId) {
-      workerId =
-        req?.cookies?.tc_account_id ??
-        req?.headers?.cookie
-          ?.split(';')
-          .map((p) => p.trim())
-          .find((p) => p.startsWith('tc_account_id='))
-          ?.split('=')[1];
-    }
-    if (!workerId) {
-      throw new ForbiddenException('Worker ID not found');
-    }
-    return this.cafeWorkerService.getMySchedule(workerId);
+  async getMySchedule(@Req() req?: WorkerRequest) {
+    return this.cafeWorkerService.getMySchedule(resolveWorkerId(req));
   }
 
   @Get('me')
-  async getWorkerInfo(
-    @Req()
-    req?: {
-      user?: { sub?: string; id?: string };
-      cookies?: { tc_account_id?: string };
-      headers?: { cookie?: string };
+  async getWorkerInfo(@Req() req?: WorkerRequest) {
+    return this.cafeWorkerService.getMe(resolveWorkerId(req));
+  }
+
+  @Patch('me/profile')
+  async updateMyProfile(
+    @Body() body: UpdateWorkerProfileDto,
+    @Req() req?: WorkerRequest,
+  ) {
+    return this.cafeWorkerService.updateMyProfile(resolveWorkerId(req), body);
+  }
+
+  @Post('me/avatar')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadMyAvatar(
+    @Req() req?: WorkerRequest,
+    @UploadedFile()
+    file?: {
+      buffer: Buffer;
+      mimetype: string;
+      size: number;
+      originalname?: string;
     },
   ) {
-    // Попытка получить workerId из req.user (если доступен)
-    let workerId = req?.user?.id;
-
-    // Если нет в req.user, попробуем из cookie
-    if (!workerId) {
-      workerId =
-        req?.cookies?.tc_account_id ??
-        req?.headers?.cookie
-          ?.split(';')
-          .map((p) => p.trim())
-          .find((p) => p.startsWith('tc_account_id='))
-          ?.split('=')[1];
+    if (!file) {
+      throw new BadRequestException('File is required');
     }
-
-    if (!workerId) {
-      throw new ForbiddenException('Worker ID not found');
-    }
-
-    const worker = await this.prisma.workerAccount.findUnique({
-      where: { id: workerId },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        shiftStatus: true,
-        brandId: true,
-        cafeId: true,
-        brand: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        cafe: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-          },
-        },
-      },
-    });
-
-    if (!worker) {
-      throw new ForbiddenException('Worker not found');
-    }
-
-    return worker;
+    return this.cafeWorkerService.uploadMyAvatar(resolveWorkerId(req), file);
   }
 
   @Patch('orders/:id/confirm')

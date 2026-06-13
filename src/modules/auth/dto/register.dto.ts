@@ -6,7 +6,7 @@ export class RegisterDto {
     example: 'user@example.com',
     description: 'User email address',
   })
-  @IsEmail({}, { message: 'Email must be a valid email address' })
+  @IsEmail({}, { message: 'Впишите правильный email, пожалуйста' })
   email: string;
 
   @ApiProperty({
@@ -14,8 +14,8 @@ export class RegisterDto {
     description: 'User password (minimum 8 characters)',
     minLength: 8,
   })
-  @IsString({ message: 'Password must be a string' })
-  @MinLength(8, { message: 'Password must be at least 8 characters long' })
+  @IsString({ message: 'Укажите пароль' })
+  @MinLength(8, { message: 'Пароль должен быть не короче 8 символов' })
   password: string;
 
   @ApiProperty({

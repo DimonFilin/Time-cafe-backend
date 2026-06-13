@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsNotEmpty,
@@ -9,7 +10,17 @@ import {
   Max,
   ArrayMaxSize,
   MaxLength,
+  Matches,
+  IsIn,
+  ValidateNested,
 } from 'class-validator';
+import {
+  CAFE_OCCUPANCY_MODES,
+  CAFE_PHONE_FORMAT_HINT,
+  CAFE_PHONE_REGEX,
+  IsCafeEmail,
+} from '../../../common/cafe/cafe-field-validators';
+import { UpdateCafeScheduleDto } from '../../cafe-admin/dto/update-cafe-schedule.dto';
 
 export class CreateCafeDto {
   @ApiProperty({ example: 'Coffee House Downtown', description: 'Cafe name' })
@@ -104,4 +115,39 @@ export class CreateCafeDto {
   @IsString()
   @MaxLength(500)
   cafeApiUrl?: string;
+
+  @ApiPropertyOptional({
+    example: '+375-29-123-45-67',
+    description: CAFE_PHONE_FORMAT_HINT,
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(CAFE_PHONE_REGEX, {
+    message: CAFE_PHONE_FORMAT_HINT,
+  })
+  phone?: string;
+
+  @ApiPropertyOptional({
+    example: 'cafe@example.com',
+    description: 'Email (exactly one @)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  @IsCafeEmail()
+  email?: string;
+
+  @ApiPropertyOptional({
+    enum: CAFE_OCCUPANCY_MODES,
+    default: 'PERCENT',
+  })
+  @IsOptional()
+  @IsIn([...CAFE_OCCUPANCY_MODES])
+  occupancyMode?: string;
+
+  @ApiPropertyOptional({ type: UpdateCafeScheduleDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateCafeScheduleDto)
+  schedule?: UpdateCafeScheduleDto;
 }

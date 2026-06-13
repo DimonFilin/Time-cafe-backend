@@ -383,20 +383,31 @@ export class WorkersService {
   }
 
   /**
-   * Get all workers (SYSTEM_ADMIN only)
+   * List workers: SYSTEM_ADMIN (all or by brandId), BRAND_ADMIN (own brand only).
    */
   async findAll(
     keycloakId: string,
     query: WorkerListQueryDto,
   ): Promise<WorkerListResponseDto> {
-    // Check if user is SYSTEM_ADMIN
     const worker = await this.findByKeycloakId(keycloakId);
     if (!worker) {
       throw new ForbiddenException('Worker not found');
     }
 
-    // Only SYSTEM_ADMIN can access this endpoint
-    if (worker.role !== WorkerRole.SYSTEM_ADMIN) {
+    let brandIdFilter = query.brandId;
+
+    if (worker.role === WorkerRole.BRAND_ADMIN) {
+      if (!worker.brandId) {
+        throw new ForbiddenException('Brand admin has no brand assigned');
+      }
+      if (brandIdFilter && brandIdFilter !== worker.brandId) {
+        throw new ForbiddenException('Cannot view workers of another brand');
+      }
+      if (query.role === WorkerRole.SYSTEM_ADMIN) {
+        throw new ForbiddenException('Cannot list system administrators');
+      }
+      brandIdFilter = worker.brandId;
+    } else if (worker.role !== WorkerRole.SYSTEM_ADMIN) {
       throw new ForbiddenException('Only SYSTEM_ADMIN can view all workers');
     }
 
@@ -406,13 +417,18 @@ export class WorkersService {
 
     let where: Prisma.WorkerAccountWhereInput = {
       ...(query.includeDeleted ? {} : { deletedAt: null }),
-      ...(query.role && { role: query.role }),
       ...(query.cafeId && { cafeId: query.cafeId }),
+      ...(worker.role === WorkerRole.BRAND_ADMIN
+        ? query.role
+          ? { role: query.role }
+          : { role: { not: WorkerRole.SYSTEM_ADMIN } }
+        : query.role
+          ? { role: query.role }
+          : {}),
     };
 
-    // If SYSTEM_ADMIN specifies brandId, filter by it
-    if (query.brandId) {
-      where = { ...where, brandId: query.brandId };
+    if (brandIdFilter) {
+      where = { ...where, brandId: brandIdFilter };
     }
 
     const [items, total] = await Promise.all([

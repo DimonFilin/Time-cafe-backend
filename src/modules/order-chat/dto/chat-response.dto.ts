@@ -22,6 +22,23 @@ export class ChatAttachmentDto {
   sortOrder: number;
 }
 
+export class ChatAuthorWorkerDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  firstName: string;
+
+  @ApiProperty()
+  lastName: string;
+
+  @ApiPropertyOptional()
+  avatarUrl?: string | null;
+
+  @ApiPropertyOptional()
+  cafeName?: string | null;
+}
+
 export class ChatMessageDto {
   @ApiProperty()
   id: string;
@@ -37,6 +54,9 @@ export class ChatMessageDto {
 
   @ApiPropertyOptional()
   authorWorkerId?: string | null;
+
+  @ApiPropertyOptional({ type: ChatAuthorWorkerDto })
+  authorWorker?: ChatAuthorWorkerDto | null;
 
   @ApiProperty({ enum: ChatMessageType })
   messageType: ChatMessageType;

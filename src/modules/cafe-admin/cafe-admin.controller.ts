@@ -32,7 +32,12 @@ import {
   UpdateWorkerShiftScheduleDto,
 } from './dto/worker-shift-schedule.dto';
 import { LogActivity } from '../../common/decorators/log-activity.decorator';
-import { ActivityAction, ActivityCategory, WorkerRole } from '@prisma/client';
+import {
+  ActivityAction,
+  ActivityCategory,
+  LogSeverity,
+  WorkerRole,
+} from '@prisma/client';
 import type { Request as ExpressRequest } from 'express';
 import type { WorkerAccount } from '@prisma/client';
 
@@ -461,8 +466,14 @@ export class CafeAdminController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('workerId') workerId?: string,
+    @Query('action') action?: ActivityAction,
+    @Query('category') category?: ActivityCategory,
+    @Query('severity') severity?: LogSeverity,
+    @Query('resourceType') resourceType?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
   ) {
     const { cafeId } = await this.enrichRequest(req);
     return this.activityLogsService.getLogs({
@@ -470,8 +481,14 @@ export class CafeAdminController {
       page,
       limit,
       workerId,
+      action,
+      category,
+      severity,
+      resourceType,
       startDate,
       endDate,
+      sortBy,
+      sortOrder,
     });
   }
 

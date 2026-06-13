@@ -20,6 +20,10 @@ import {
   buildPlanPreviewPayload,
   planPreviewForClient,
 } from './plan-preview.util';
+import {
+  CafeOccupancyMode,
+  formatOccupancyDisplay,
+} from '../../common/cafe/cafe-field-validators';
 
 function toInputJson(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
@@ -370,6 +374,7 @@ export class CafeLayoutService {
 
   private buildOccupancyDayPayload(
     dateYmd: string,
+    occupancyMode: CafeOccupancyMode,
     rooms: Array<{ id: string; name: string; capacity: number }>,
     appointments: Array<{
       id: string;
@@ -381,18 +386,19 @@ export class CafeLayoutService {
   ) {
     const byRoom = rooms.map((room) => {
       const roomAppointments = appointments.filter((a) => a.roomId === room.id);
+      const roomPercent =
+        room.capacity > 0
+          ? Math.min(
+              100,
+              Math.round((roomAppointments.length / room.capacity) * 100),
+            )
+          : 0;
       return {
         roomId: room.id,
         roomName: room.name,
         appointmentsCount: roomAppointments.length,
         capacity: room.capacity,
-        occupancyPercent:
-          room.capacity > 0
-            ? Math.min(
-                100,
-                Math.round((roomAppointments.length / room.capacity) * 100),
-              )
-            : 0,
+        occupancyPercent: roomPercent,
       };
     });
 
@@ -401,20 +407,43 @@ export class CafeLayoutService {
       0,
     );
     const totalAppointments = appointments.length;
+    const occupancyPercent =
+      totalCapacity > 0
+        ? Math.min(100, Math.round((totalAppointments / totalCapacity) * 100))
+        : 0;
+    const displayValue = formatOccupancyDisplay(
+      occupancyMode,
+      occupancyPercent,
+      totalAppointments,
+      totalCapacity,
+    );
 
     return {
       date: dateYmd,
+      occupancyMode,
       totalCapacity,
       totalAppointments,
-      occupancyPercent:
-        totalCapacity > 0
-          ? Math.min(100, Math.round((totalAppointments / totalCapacity) * 100))
-          : 0,
+      occupancyPercent,
+      displayValue,
       rooms: byRoom,
     };
   }
 
+  private async getCafeOccupancyMode(
+    cafeId: string,
+  ): Promise<CafeOccupancyMode> {
+    const cafe = await this.prisma.cafe.findUnique({
+      where: { id: cafeId },
+      select: { occupancyMode: true },
+    });
+    if (!cafe) {
+      throw new NotFoundException('Cafe not found');
+    }
+    return (cafe.occupancyMode ?? 'PERCENT') as CafeOccupancyMode;
+  }
+
   async getOccupancyDay(cafeId: string, dateYmd: string) {
+    const occupancyMode = await this.getCafeOccupancyMode(cafeId);
     const start = new Date(`${dateYmd}T00:00:00.000Z`);
     const end = new Date(`${dateYmd}T23:59:59.999Z`);
     const [rooms, appointments] = await Promise.all([
@@ -435,7 +464,12 @@ export class CafeLayoutService {
       }),
     ]);
 
-    return this.buildOccupancyDayPayload(dateYmd, rooms, appointments);
+    return this.buildOccupancyDayPayload(
+      dateYmd,
+      occupancyMode,
+      rooms,
+      appointments,
+    );
   }
 
   async getOccupancy(
@@ -465,7 +499,8 @@ export class CafeLayoutService {
         }
       }
 
-      const [rooms, appointments] = await Promise.all([
+      const [occupancyMode, rooms, appointments] = await Promise.all([
+        this.getCafeOccupancyMode(cafeId),
         this.prisma.cafeRoom.findMany({ where: { cafeId, status: 'ACTIVE' } }),
         this.prisma.appointment.findMany({
           where: {
@@ -498,7 +533,7 @@ export class CafeLayoutService {
         const apps = appointments.filter(
           (a) => a.dateTime >= ds && a.dateTime <= de,
         );
-        return this.buildOccupancyDayPayload(ymd, rooms, apps);
+        return this.buildOccupancyDayPayload(ymd, occupancyMode, rooms, apps);
       });
 
       const avgOccupancyPercent = dayRows.length
@@ -507,9 +542,16 @@ export class CafeLayoutService {
               dayRows.length,
           )
         : 0;
+      const avgOccupied = dayRows.length
+        ? Math.round(
+            dayRows.reduce((s, row) => s + row.totalAppointments, 0) /
+              dayRows.length,
+          )
+        : 0;
 
       return {
         mode: 'range' as const,
+        occupancyMode,
         from,
         to,
         days: dayRows.map((d) => ({
@@ -517,8 +559,13 @@ export class CafeLayoutService {
           occupancyPercent: d.occupancyPercent,
           totalAppointments: d.totalAppointments,
           totalCapacity: d.totalCapacity,
+          displayValue: d.displayValue,
         })),
-        summary: { avgOccupancyPercent, dayCount: dayRows.length },
+        summary: {
+          avgOccupancyPercent,
+          avgOccupied,
+          dayCount: dayRows.length,
+        },
       };
     }
 

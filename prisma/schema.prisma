@@ -16,6 +16,8 @@ model WorkerAccount {
   role                 WorkerRole
   shiftStatus          WorkerShiftStatus @default(OFF_SHIFT)
   shiftSchedule        Json?
+  avatar               String?
+  birthDate            DateTime?         @db.Date
   brandId              String?
   cafeId               String?
   deletedAt            DateTime?
@@ -70,6 +72,9 @@ model User {
   chatMessages OrderChatMessage[]
   chatReadStates OrderChatReadState[]
   chatTypingStates OrderChatTypingState[]
+  networkGuest     NetworkGuest?
+  notifications    UserNotification[]
+  pushToken        String?
 
   @@map("users")
 }
@@ -135,6 +140,8 @@ model Cafe {
   brandId        String
   regionId       String
   cafeApiUrl     String?
+  phone          String?
+  email          String?
   openingHours   Json?
   layoutVersion  Int             @default(1)
   occupancyMode  String          @default("PERCENT")
@@ -157,8 +164,9 @@ model Cafe {
   reviews        Review[]
   taskTemplates  TaskTemplate[]
   workerAccounts WorkerAccount[]
-  orderChats     OrderChat[]
-  chatSettings   Json?
+  orderChats       OrderChat[]
+  chatSettings     Json?
+  registeredGuests NetworkGuest[]
 
   @@map("cafes")
 }
@@ -870,4 +878,168 @@ enum ChatAttachmentStatus {
   UPLOADING
   UPLOADED
   FAILED
+}
+
+model PlatformLoyaltySettings {
+  id                             String   @id @default("singleton")
+  enabled                        Boolean  @default(false)
+  accrualDelayHours              Int      @default(120)
+  minTopUpForBonus               Decimal  @default(20) @db.Decimal(10, 2)
+  tierPercentChangeCooldownHours Int      @default(24)
+  timezone                       String   @default("Europe/Moscow")
+  updatedAt                      DateTime @updatedAt
+
+  @@map("platform_loyalty_settings")
+}
+
+model LoyaltyTier {
+  id                 String               @id @default(uuid())
+  name               String
+  bonusPercent       Decimal              @db.Decimal(5, 2)
+  sortOrder          Int
+  isActive           Boolean              @default(true)
+  isDefault          Boolean              @default(false)
+  percentLockedUntil DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  guests             NetworkGuest[]
+  historyFrom        LoyaltyTierHistory[] @relation("fromTier")
+  historyTo          LoyaltyTierHistory[] @relation("toTier")
+
+  @@map("loyalty_tiers")
+}
+
+model NetworkGuest {
+  id                    String                @id @default(uuid())
+  userId                String?               @unique
+  registrationCafeId    String?
+  firstName             String
+  lastName              String?
+  patronymic            String?
+  phone                 String                @unique
+  phoneVerifiedAt       DateTime?
+  phoneVerifyCodeHash   String?
+  phoneVerifyExpiresAt  DateTime?
+  email                 String?
+  birthDate             DateTime?
+  gender                Gender?
+  accessCardNumber      String?               @unique
+  status                GuestStatus           @default(DRAFT)
+  depositBalance        Decimal               @default(0) @db.Decimal(12, 2)
+  debt                  Decimal               @default(0) @db.Decimal(12, 2)
+  loyaltyTierId         String?
+  loyaltyWelcomeShownAt DateTime?
+  refusedReason         String?
+  notes                 String?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  user                  User?                 @relation(fields: [userId], references: [id])
+  registrationCafe      Cafe?                 @relation(fields: [registrationCafeId], references: [id])
+  loyaltyTier           LoyaltyTier?          @relation(fields: [loyaltyTierId], references: [id])
+  tierHistory           LoyaltyTierHistory[]
+  pendingBonuses        PendingLoyaltyBonus[]
+  ledgerEntries         WalletLedgerEntry[]
+
+  @@index([status])
+  @@index([loyaltyTierId])
+  @@map("network_guests")
+}
+
+model LoyaltyTierHistory {
+  id         String       @id @default(uuid())
+  guestId    String
+  fromTierId String?
+  toTierId   String
+  reason     String
+  changedBy  String
+  createdAt  DateTime     @default(now())
+  guest      NetworkGuest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  fromTier   LoyaltyTier? @relation("fromTier", fields: [fromTierId], references: [id])
+  toTier     LoyaltyTier  @relation("toTier", fields: [toTierId], references: [id])
+
+  @@index([guestId, createdAt])
+  @@map("loyalty_tier_history")
+}
+
+model PendingLoyaltyBonus {
+  id            String             @id @default(uuid())
+  guestId       String
+  brandId       String?
+  cafeId        String?
+  topUpLedgerId String             @unique
+  topUpAmount   Decimal            @db.Decimal(12, 2)
+  bonusPercent  Decimal            @db.Decimal(5, 2)
+  bonusAmount   Decimal            @db.Decimal(12, 2)
+  scheduledAt   DateTime
+  status        PendingBonusStatus @default(SCHEDULED)
+  creditedAt    DateTime?
+  cancelledAt   DateTime?
+  createdAt     DateTime           @default(now())
+  guest         NetworkGuest       @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  topUpLedger   WalletLedgerEntry  @relation(fields: [topUpLedgerId], references: [id])
+
+  @@index([status, scheduledAt])
+  @@index([guestId])
+  @@map("pending_loyalty_bonuses")
+}
+
+model WalletLedgerEntry {
+  id           String            @id @default(uuid())
+  guestId      String
+  brandId      String?
+  cafeId       String?
+  type         WalletEntryType
+  amount       Decimal           @db.Decimal(12, 2)
+  depositAfter Decimal           @db.Decimal(12, 2)
+  debtAfter    Decimal           @db.Decimal(12, 2)
+  referenceId  String?
+  createdBy    String?
+  meta         Json?
+  createdAt    DateTime          @default(now())
+  guest        NetworkGuest      @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  pendingBonus PendingLoyaltyBonus?
+
+  @@index([guestId, createdAt])
+  @@index([brandId, createdAt])
+  @@index([type, createdAt])
+  @@map("wallet_ledger_entries")
+}
+
+model UserNotification {
+  id        String    @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  readAt    DateTime?
+  meta      Json?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("user_notifications")
+}
+
+enum GuestStatus {
+  DRAFT
+  ACTIVE
+  REFUSED
+}
+
+enum PendingBonusStatus {
+  SCHEDULED
+  CREDITED
+  CANCELLED
+}
+
+enum WalletEntryType {
+  TOP_UP_CASH
+  TOP_UP_CARD
+  TOP_UP_MOBILE
+  VISIT_CHARGE
+  LOYALTY_BONUS
+  DEBT_REPAYMENT
+  REFUND
+  ADJUSTMENT
 }

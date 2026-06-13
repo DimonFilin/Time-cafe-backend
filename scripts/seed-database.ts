@@ -132,8 +132,10 @@ async function createKeycloakUser(
   }
 }
 
+/** @deprecated Use `npm run seed:belarus` — Belarus demo (3 cafes, full schema). */
 async function main() {
-  console.log('🌱 Starting database seeding...\n');
+  console.log('🌱 Starting database seeding (legacy Moscow)...\n');
+  console.warn('⚠️  Prefer: npm run seed:belarus\n');
 
   try {
     // Get Keycloak admin token
@@ -745,6 +747,9 @@ async function main() {
       ],
     });
     console.log(`✓ Created activity logs`);
+
+    const { seedLoyalty } = await import('./seed-loyalty');
+    await seedLoyalty(prisma);
 
     console.log('\n✅ Database seeding completed successfully!\n');
     console.log('📋 Summary:');

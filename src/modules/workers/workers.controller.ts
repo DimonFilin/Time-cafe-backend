@@ -399,8 +399,9 @@ export class AdminWorkersController {
 
   @Get()
   @ApiOperation({
-    summary: 'Get all workers (SYSTEM_ADMIN only)',
-    description: 'Returns paginated list of all workers',
+    summary: 'List workers (SYSTEM_ADMIN or BRAND_ADMIN for own brand)',
+    description:
+      'SYSTEM_ADMIN: all workers, optional brandId filter. BRAND_ADMIN: workers of their brand only.',
   })
   @ApiResponse({
     status: 200,
@@ -413,7 +414,7 @@ export class AdminWorkersController {
   })
   @ApiResponse({
     status: 403,
-    description: 'Forbidden - SYSTEM_ADMIN role required',
+    description: 'Forbidden - SYSTEM_ADMIN or BRAND_ADMIN (own brand)',
   })
   async findAll(
     @Query() query: WorkerListQueryDto,

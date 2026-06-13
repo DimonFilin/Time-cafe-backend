@@ -39,6 +39,8 @@
     "seed:fix-brand-admin": "ts-node scripts/fix-brand-admin.ts",
     "seed:reset-password": "ts-node scripts/reset-user-password.ts",
     "seed:clear": "ts-node scripts/clear-database.ts",
+    "seed:belarus": "ts-node scripts/seed-belarus-demo.ts",
+    "seed:showcase": "ts-node scripts/seed-demo-showcase.ts",
     "prepare": "husky"
   },
   "dependencies": {
@@ -52,6 +54,7 @@
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/platform-socket.io": "^11.1.19",
+    "@nestjs/schedule": "^6.1.3",
     "@nestjs/swagger": "^8.0.3",
     "@nestjs/websockets": "^11.1.19",
     "@prisma/client": "^6.1.0",

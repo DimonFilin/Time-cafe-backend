@@ -2,7 +2,6 @@ import {
   IsString,
   IsOptional,
   IsNumber,
-  IsEmail,
   MinLength,
   MaxLength,
   Min,
@@ -11,9 +10,17 @@ import {
   IsEnum,
   IsArray,
   IsUUID,
+  Matches,
+  IsIn,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { ChatNotificationMode, WorkerRole } from '@prisma/client';
+import {
+  CAFE_OCCUPANCY_MODES,
+  CAFE_PHONE_FORMAT_HINT,
+  CAFE_PHONE_REGEX,
+  IsCafeEmail,
+} from '../../../common/cafe/cafe-field-validators';
 
 export class UpdateCafeDto {
   @ApiProperty({
@@ -99,33 +106,36 @@ export class UpdateCafeDto {
   longitude?: number;
 
   @ApiProperty({
-    description: 'Phone number',
-    example: '+1234567890',
+    description: CAFE_PHONE_FORMAT_HINT,
+    example: '+375-29-123-45-67',
     required: false,
   })
   @IsOptional()
   @IsString()
-  @MaxLength(20)
+  @Matches(CAFE_PHONE_REGEX, {
+    message: CAFE_PHONE_FORMAT_HINT,
+  })
   phone?: string;
 
   @ApiProperty({
-    description: 'Email address',
+    description: 'Email address (exactly one @)',
     example: 'cafe@example.com',
     required: false,
   })
   @IsOptional()
-  @IsEmail()
+  @IsString()
+  @MaxLength(200)
+  @IsCafeEmail()
   email?: string;
 
   @ApiProperty({
-    description: 'Cafe capacity (number of seats)',
-    example: 50,
+    description: 'Occupancy display mode for mobile apps',
+    enum: CAFE_OCCUPANCY_MODES,
     required: false,
   })
   @IsOptional()
-  @IsNumber()
-  @Min(1)
-  capacity?: number;
+  @IsIn([...CAFE_OCCUPANCY_MODES])
+  occupancyMode?: string;
 
   @ApiProperty({
     required: false,

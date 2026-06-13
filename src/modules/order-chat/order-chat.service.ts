@@ -38,6 +38,19 @@ type Actor =
       brandId: string | null;
     };
 
+const orderChatMessageInclude = {
+  attachments: { orderBy: { sortOrder: 'asc' as const } },
+  authorWorker: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      avatar: true,
+      cafe: { select: { name: true } },
+    },
+  },
+};
+
 @Injectable()
 export class OrderChatService {
   constructor(
@@ -183,6 +196,28 @@ export class OrderChatService {
     return typeof raw === 'boolean' ? raw : true;
   }
 
+  private async toAuthorWorkerDto(
+    worker:
+      | {
+          id: string;
+          firstName: string;
+          lastName: string;
+          avatar: string | null;
+          cafe?: { name: string } | null;
+        }
+      | null
+      | undefined,
+  ) {
+    if (!worker) return null;
+    return {
+      id: worker.id,
+      firstName: worker.firstName,
+      lastName: worker.lastName,
+      avatarUrl: await this.resolveUserAvatarUrl(worker.avatar),
+      cafeName: worker.cafe?.name ?? null,
+    };
+  }
+
   private async toMessageDto(message: {
     id: string;
     chatId: string;
@@ -192,6 +227,13 @@ export class OrderChatService {
     messageType: ChatMessageType;
     text: string | null;
     createdAt: Date;
+    authorWorker?: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      avatar: string | null;
+      cafe?: { name: string } | null;
+    } | null;
     attachments?: Array<{
       id: string;
       bucket?: string;
@@ -227,6 +269,7 @@ export class OrderChatService {
       authorType: message.authorType,
       authorUserId: message.authorUserId,
       authorWorkerId: message.authorWorkerId,
+      authorWorker: await this.toAuthorWorkerDto(message.authorWorker),
       messageType: message.messageType,
       text: message.text,
       createdAt: message.createdAt,
@@ -377,7 +420,7 @@ export class OrderChatService {
         messages: {
           take: 1,
           orderBy: { createdAt: 'desc' },
-          include: { attachments: true },
+          include: orderChatMessageInclude,
         },
       },
     });
@@ -394,7 +437,7 @@ export class OrderChatService {
             messages: {
               take: 1,
               orderBy: { createdAt: 'desc' },
-              include: { attachments: true },
+              include: orderChatMessageInclude,
             },
           },
         });
@@ -410,7 +453,7 @@ export class OrderChatService {
               messages: {
                 take: 1,
                 orderBy: { createdAt: 'desc' },
-                include: { attachments: true },
+                include: orderChatMessageInclude,
               },
             },
           });
@@ -533,7 +576,7 @@ export class OrderChatService {
           messages: {
             orderBy: { createdAt: 'desc' },
             take: 1,
-            include: { attachments: true },
+            include: orderChatMessageInclude,
           },
           readStates: { where: readWhere, take: 1 },
           cafe: { select: { chatSettings: true } },
@@ -671,7 +714,7 @@ export class OrderChatService {
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
-        include: { attachments: { orderBy: { sortOrder: 'asc' } } },
+        include: orderChatMessageInclude,
       }),
       this.prisma.orderChatMessage.count({
         where: { chatId, isDeleted: false },
@@ -798,7 +841,7 @@ export class OrderChatService {
 
       return tx.orderChatMessage.findUniqueOrThrow({
         where: { id: message.id },
-        include: { attachments: { orderBy: { sortOrder: 'asc' } } },
+        include: orderChatMessageInclude,
       });
     });
 
@@ -891,6 +934,28 @@ export class OrderChatService {
       status: updated.status,
       sortOrder: updated.sortOrder,
     };
+  }
+
+  async streamAttachmentFile(
+    chatId: string,
+    attachmentId: string,
+    actor: Actor,
+  ): Promise<{ data: Buffer; contentType: string }> {
+    await this.ensureChatAccess(chatId, actor);
+    const attachment = await this.prisma.orderChatAttachment.findFirst({
+      where: { id: attachmentId, chatId },
+    });
+    if (!attachment?.path) {
+      throw new NotFoundException('Attachment not found');
+    }
+    if (attachment.status === ChatAttachmentStatus.UPLOADING) {
+      throw new BadRequestException('Attachment is still uploading');
+    }
+    const { data, contentType } = await this.storageService.getObjectBytes(
+      attachment.bucket,
+      attachment.path,
+    );
+    return { data, contentType };
   }
 
   async markRead(chatId: string, actor: Actor, dto: MarkChatReadDto) {

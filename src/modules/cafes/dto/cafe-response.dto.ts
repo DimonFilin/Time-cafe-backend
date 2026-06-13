@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { CafeOccupancyMode } from '../../../common/cafe/cafe-field-validators';
 
 export class CafeResponseDto {
   @ApiProperty({ example: 'uuid', description: 'Cafe ID' })
@@ -105,4 +106,34 @@ export class CafeResponseDto {
     type: Object,
   })
   openingHours?: unknown;
+
+  @ApiPropertyOptional({
+    example: '+375-29-123-45-67',
+    description: 'Contact phone',
+  })
+  phone?: string;
+
+  @ApiPropertyOptional({
+    example: 'cafe@example.com',
+    description: 'Contact email',
+  })
+  email?: string;
+
+  @ApiProperty({
+    example: 'PERCENT',
+    description: 'How occupancy is shown: PERCENT or COUNT',
+  })
+  occupancyMode: CafeOccupancyMode;
+
+  @ApiProperty({
+    example: 48,
+    description: 'Sum of ACTIVE room capacities',
+  })
+  totalCapacity: number;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Whether cafe is open now per openingHours',
+  })
+  isOpenNow?: boolean | null;
 }

@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { CafeOccupancyMode } from '../../common/cafe/cafe-field-validators';
 import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma, BrandStatus } from '@prisma/client';
@@ -28,6 +29,12 @@ import {
   NominatimReverseResult,
 } from './types/nominatim.types';
 import { WorkersService } from '../workers/workers.service';
+import { computeCafeTotalCapacity } from '../../common/cafe/cafe-capacity.lib';
+import { isCafeOpenNow } from '../../common/cafe/cafe-open-status.lib';
+import {
+  scheduleDtoToJson,
+  validateCafeSchedule,
+} from '../../common/cafe/cafe-schedule.lib';
 import { WorkerRole } from '@prisma/client';
 import { firstValueFrom } from 'rxjs';
 import { StorageService } from '../storage/storage.service';
@@ -269,6 +276,10 @@ export class CafesService {
     }
 
     // Create cafe
+    if (createCafeDto.schedule) {
+      validateCafeSchedule(createCafeDto.schedule);
+    }
+
     const cafe = await this.prisma.cafe.create({
       data: {
         name: createCafeDto.name,
@@ -282,6 +293,12 @@ export class CafesService {
         regionId: createCafeDto.regionId,
         photos: createCafeDto.photos || [],
         cafeApiUrl: createCafeDto.cafeApiUrl,
+        phone: createCafeDto.phone,
+        email: createCafeDto.email,
+        occupancyMode: createCafeDto.occupancyMode ?? 'PERCENT',
+        ...(createCafeDto.schedule
+          ? { openingHours: scheduleDtoToJson(createCafeDto.schedule) }
+          : {}),
         rating: 0,
         reviewsCount: 0,
       },
@@ -302,7 +319,7 @@ export class CafesService {
     this.logger.log(
       `Cafe created: ${cafe.id} for brand ${createCafeDto.brandId}`,
     );
-    return this.mapToResponseDto(cafe);
+    return this.enrichResponseDto(cafe);
   }
 
   /**
@@ -382,7 +399,7 @@ export class CafesService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return cafes.map((cafe) => this.mapToResponseDto(cafe));
+    return Promise.all(cafes.map((cafe) => this.enrichResponseDto(cafe)));
   }
 
   /**
@@ -493,6 +510,7 @@ export class CafesService {
       reviewsCount: cafe.reviewsCount,
       brandId: cafe.brandId,
       brandName: cafe.brand?.name,
+      createdAt: cafe.createdAt,
     }));
 
     // Calculate distances if location provided
@@ -669,6 +687,7 @@ export class CafesService {
       reviewsCount: cafe.reviewsCount,
       brandId: cafe.brandId,
       brandName: cafe.brand?.name,
+      createdAt: cafe.createdAt,
       deletedAt: cafe.deletedAt ?? null,
     }));
 
@@ -771,7 +790,7 @@ export class CafesService {
       throw new NotFoundException(`Cafe with ID ${id} not found`);
     }
 
-    return this.mapToResponseDto(cafe);
+    return this.enrichResponseDto(cafe);
   }
 
   /**
@@ -892,6 +911,10 @@ export class CafesService {
       throw new BadRequestException('Invalid longitude');
     }
 
+    if (updateCafeDto.schedule) {
+      validateCafeSchedule(updateCafeDto.schedule);
+    }
+
     // Update cafe
     const updatedCafe = await this.prisma.cafe.update({
       where: { id },
@@ -919,6 +942,18 @@ export class CafesService {
         ...(updateCafeDto.cafeApiUrl !== undefined && {
           cafeApiUrl: updateCafeDto.cafeApiUrl,
         }),
+        ...(updateCafeDto.phone !== undefined && {
+          phone: updateCafeDto.phone,
+        }),
+        ...(updateCafeDto.email !== undefined && {
+          email: updateCafeDto.email,
+        }),
+        ...(updateCafeDto.occupancyMode !== undefined && {
+          occupancyMode: updateCafeDto.occupancyMode,
+        }),
+        ...(updateCafeDto.schedule
+          ? { openingHours: scheduleDtoToJson(updateCafeDto.schedule) }
+          : {}),
       },
       include: {
         brand: {
@@ -935,7 +970,7 @@ export class CafesService {
     });
 
     this.logger.log(`Cafe updated: ${id}`);
-    return this.mapToResponseDto(updatedCafe);
+    return this.enrichResponseDto(updatedCafe);
   }
 
   /**
@@ -1001,12 +1036,15 @@ export class CafesService {
     brandId: string;
     regionId: string;
     cafeApiUrl?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    occupancyMode?: CafeOccupancyMode;
     createdAt: Date;
     updatedAt: Date;
     openingHours?: unknown;
     brand?: { name: string } | null;
     region?: { name: string } | null;
-  }): CafeResponseDto {
+  }): Omit<CafeResponseDto, 'totalCapacity' | 'isOpenNow'> {
     return {
       id: cafe.id,
       name: cafe.name,
@@ -1024,9 +1062,24 @@ export class CafesService {
       regionId: cafe.regionId,
       regionName: cafe.region?.name,
       cafeApiUrl: cafe.cafeApiUrl || undefined,
+      phone: cafe.phone || undefined,
+      email: cafe.email || undefined,
+      occupancyMode: cafe.occupancyMode ?? 'PERCENT',
       createdAt: cafe.createdAt,
       updatedAt: cafe.updatedAt,
       openingHours: cafe.openingHours ?? undefined,
+    };
+  }
+
+  private async enrichResponseDto(
+    cafe: Parameters<CafesService['mapToResponseDto']>[0],
+  ): Promise<CafeResponseDto> {
+    const base = this.mapToResponseDto(cafe);
+    const totalCapacity = await computeCafeTotalCapacity(this.prisma, cafe.id);
+    return {
+      ...base,
+      totalCapacity,
+      isOpenNow: isCafeOpenNow(cafe.openingHours),
     };
   }
 

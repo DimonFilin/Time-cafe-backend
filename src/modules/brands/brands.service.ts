@@ -30,6 +30,8 @@ import {
   BrandPopularItemsDto,
 } from './dto/brand-analytics.dto';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { computeCafeTotalCapacity } from '../../common/cafe/cafe-capacity.lib';
+import { isCafeOpenNow } from '../../common/cafe/cafe-open-status.lib';
 
 @Injectable()
 export class BrandsService {
@@ -112,6 +114,10 @@ export class BrandsService {
         email: true,
         sms: false,
         push: false,
+      },
+      loyalty: {
+        bonusesEnabled: true,
+        displayMode: 'BRIEF',
       },
     };
   }
@@ -1381,26 +1387,39 @@ export class BrandsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return cafes.map((cafe) => ({
-      id: cafe.id,
-      name: cafe.name,
-      description: cafe.description || undefined,
-      address: cafe.address,
-      city: cafe.city,
-      street: cafe.street || undefined,
-      latitude: cafe.latitude,
-      longitude: cafe.longitude,
-      photos: cafe.photos,
-      rating: cafe.rating || 0,
-      reviewsCount: cafe.reviewsCount,
-      brandId: cafe.brandId,
-      brandName: cafe.brand?.name,
-      regionId: cafe.regionId,
-      regionName: cafe.region?.name,
-      cafeApiUrl: cafe.cafeApiUrl || undefined,
-      createdAt: cafe.createdAt,
-      updatedAt: cafe.updatedAt,
-    }));
+    return Promise.all(
+      cafes.map(async (cafe) => {
+        const totalCapacity = await computeCafeTotalCapacity(
+          this.prisma,
+          cafe.id,
+        );
+        return {
+          id: cafe.id,
+          name: cafe.name,
+          description: cafe.description || undefined,
+          address: cafe.address,
+          city: cafe.city,
+          street: cafe.street || undefined,
+          latitude: cafe.latitude,
+          longitude: cafe.longitude,
+          photos: cafe.photos,
+          rating: cafe.rating || 0,
+          reviewsCount: cafe.reviewsCount,
+          brandId: cafe.brandId,
+          brandName: cafe.brand?.name,
+          regionId: cafe.regionId,
+          regionName: cafe.region?.name,
+          cafeApiUrl: cafe.cafeApiUrl || undefined,
+          phone: cafe.phone || undefined,
+          email: cafe.email || undefined,
+          occupancyMode: cafe.occupancyMode ?? 'PERCENT',
+          totalCapacity,
+          isOpenNow: isCafeOpenNow(cafe.openingHours),
+          createdAt: cafe.createdAt,
+          updatedAt: cafe.updatedAt,
+        };
+      }),
+    );
   }
 
   /**

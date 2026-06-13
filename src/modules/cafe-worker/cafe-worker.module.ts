@@ -4,9 +4,10 @@ import { CafeWorkerService } from './cafe-worker.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 import { KeycloakModule } from '../auth/keycloak.module';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
-  imports: [PrismaModule, ActivityLogsModule, KeycloakModule],
+  imports: [PrismaModule, ActivityLogsModule, KeycloakModule, StorageModule],
   controllers: [CafeWorkerController],
   providers: [CafeWorkerService],
   exports: [CafeWorkerService],

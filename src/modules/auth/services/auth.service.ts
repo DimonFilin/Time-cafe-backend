@@ -50,13 +50,15 @@ export class AuthService {
     const keycloakUser = await this.keycloakService.getUserByEmail(dto.email);
     if (keycloakUser) {
       throw new ConflictException(
-        'User with this email already exists in Keycloak',
+        'Пользователь с таким email уже зарегистрирован',
       );
     }
 
     const existingUser = await this.usersService.findByEmail(dto.email);
     if (existingUser) {
-      throw new ConflictException('User with this email already exists');
+      throw new ConflictException(
+        'Пользователь с таким email уже зарегистрирован',
+      );
     }
 
     try {

@@ -1,10 +1,14 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
   ForbiddenException,
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
+import { StorageService } from '../storage/storage.service';
+import { FileValidator } from '../storage/utils/file-validator';
+import { UpdateWorkerProfileDto } from './dto/update-worker-profile.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OrderStatus, LogSeverity } from '@prisma/client';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
@@ -24,7 +28,150 @@ export class CafeWorkerService {
   constructor(
     private prisma: PrismaService,
     private activityLogsService: ActivityLogsService,
+    private storageService: StorageService,
   ) {}
+
+  private parseStorageRef(
+    input: string,
+  ): { bucket: string; key: string } | null {
+    const raw = String(input || '').trim();
+    if (!raw) return null;
+    const direct = raw.match(/^(users|public|brands|cafes)\/(.+)$/);
+    if (direct) return { bucket: direct[1], key: direct[2] };
+    const urlMatch = raw.match(/\/(users|public|brands|cafes)\/(.+)$/);
+    if (urlMatch)
+      return { bucket: urlMatch[1], key: decodeURIComponent(urlMatch[2]) };
+    return null;
+  }
+
+  async resolveAvatarUrl(avatar: string | null): Promise<string | null> {
+    if (!avatar) return null;
+    const ref = this.parseStorageRef(avatar);
+    if (!ref) {
+      return /^https?:\/\//i.test(avatar) ? avatar : null;
+    }
+    try {
+      return await this.storageService.getFileUrl(ref.bucket, ref.key);
+    } catch {
+      return null;
+    }
+  }
+
+  async getMe(workerId: string) {
+    const worker = await this.prisma.workerAccount.findUnique({
+      where: { id: workerId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        shiftStatus: true,
+        avatar: true,
+        birthDate: true,
+        brandId: true,
+        cafeId: true,
+        brand: { select: { id: true, name: true } },
+        cafe: { select: { id: true, name: true, address: true } },
+      },
+    });
+    if (!worker) {
+      throw new NotFoundException('Worker not found');
+    }
+    const avatarUrl = await this.resolveAvatarUrl(worker.avatar);
+    return {
+      ...worker,
+      birthDate: worker.birthDate
+        ? worker.birthDate.toISOString().slice(0, 10)
+        : null,
+      avatarUrl,
+    };
+  }
+
+  async updateMyProfile(workerId: string, dto: UpdateWorkerProfileDto) {
+    const data: {
+      firstName?: string;
+      lastName?: string;
+      avatar?: string | null;
+      birthDate?: Date | null;
+    } = {};
+    if (dto.firstName !== undefined) {
+      const firstName = dto.firstName.trim();
+      if (!firstName) {
+        throw new BadRequestException('firstName is required');
+      }
+      data.firstName = firstName;
+    }
+    if (dto.lastName !== undefined) {
+      const lastName = dto.lastName.trim();
+      if (!lastName) {
+        throw new BadRequestException('lastName is required');
+      }
+      data.lastName = lastName;
+    }
+    if (dto.avatar !== undefined) {
+      data.avatar = dto.avatar?.trim() || null;
+    }
+    if (dto.birthDate !== undefined) {
+      if (dto.birthDate === null || dto.birthDate === '') {
+        data.birthDate = null;
+      } else {
+        const parsed = new Date(`${dto.birthDate}T12:00:00.000Z`);
+        if (Number.isNaN(parsed.getTime())) {
+          throw new BadRequestException('Invalid birthDate');
+        }
+        data.birthDate = parsed;
+      }
+    }
+    if (!Object.keys(data).length) {
+      return this.getMe(workerId);
+    }
+    await this.prisma.workerAccount.update({
+      where: { id: workerId },
+      data,
+    });
+    return this.getMe(workerId);
+  }
+
+  async uploadMyAvatar(
+    workerId: string,
+    file: {
+      buffer: Buffer;
+      mimetype: string;
+      size: number;
+      originalname?: string;
+    },
+  ) {
+    const worker = await this.prisma.workerAccount.findUnique({
+      where: { id: workerId },
+      select: { id: true },
+    });
+    if (!worker) {
+      throw new NotFoundException('Worker not found');
+    }
+
+    FileValidator.validateImage(file);
+
+    const original = (file.originalname || 'avatar').trim();
+    const safeName = original.replace(/[^\w.-]+/g, '-').replace(/-+/g, '-');
+    const fileName = `${Date.now()}-${safeName || 'avatar'}`;
+    const buckets = this.storageService.getBuckets();
+    const path = `workers/${worker.id}/avatar/${fileName}`;
+
+    const uploaded = await this.storageService.uploadFile(
+      buckets.public,
+      path,
+      file,
+      { workerId: worker.id, kind: 'avatar' },
+    );
+
+    const stableAvatarRef = `${buckets.public}/${uploaded.path}`;
+    await this.prisma.workerAccount.update({
+      where: { id: workerId },
+      data: { avatar: stableAvatarRef },
+    });
+    return this.getMe(workerId);
+  }
 
   // Получить заказы кафе
   async getOrders(cafeId: string, statuses?: OrderStatus[]) {

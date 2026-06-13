@@ -26,9 +26,16 @@ import { MenuModule } from './modules/menu/menu.module';
 import { OrderChatModule } from './modules/order-chat/order-chat.module';
 import { WorkerContextModule } from './common/worker-context/worker-context.module';
 import { CafeLayoutModule } from './modules/cafe-layout/cafe-layout.module';
+import { LoyaltyModule } from './modules/loyalty/loyalty.module';
+import { GuestsModule } from './modules/guests/guests.module';
+import { GuestWalletModule } from './modules/guest-wallet/guest-wallet.module';
+import { ReceptionModule } from './modules/reception/reception.module';
+import { DevSeedModule } from './modules/dev-seed/dev-seed.module';
+import { PushNotificationModule } from './common/notifications/push-notification.module';
 
 @Module({
   imports: [
+    PushNotificationModule,
     WorkerContextModule,
     ConfigModule,
     PrismaModule,
@@ -54,6 +61,11 @@ import { CafeLayoutModule } from './modules/cafe-layout/cafe-layout.module';
     MenuModule,
     OrderChatModule,
     CafeLayoutModule,
+    LoyaltyModule,
+    GuestsModule,
+    GuestWalletModule,
+    ReceptionModule,
+    DevSeedModule,
   ],
   controllers: [AppController],
   providers: [AppService],

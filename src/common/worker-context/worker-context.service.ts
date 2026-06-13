@@ -57,6 +57,9 @@ export class WorkerContextService {
   shouldEnrichPath(urlPath: string): boolean {
     if (!urlPath) return false;
     if (urlPath.startsWith('/cafe-worker')) return true;
+    if (urlPath.startsWith('/worker/reception')) return true;
+    if (urlPath.startsWith('/worker/guests')) return true;
+    if (urlPath.startsWith('/admin/guests')) return true;
     if (urlPath.startsWith('/cafe-admin/tasks')) return true;
     if (urlPath.startsWith('/cafe-worker/tasks')) return true;
     if (urlPath.startsWith('/admin/cafes')) return true;
