@@ -1038,7 +1038,7 @@ export class CafesService {
     cafeApiUrl?: string | null;
     phone?: string | null;
     email?: string | null;
-    occupancyMode?: CafeOccupancyMode;
+    occupancyMode?: string | null;
     createdAt: Date;
     updatedAt: Date;
     openingHours?: unknown;
@@ -1064,7 +1064,7 @@ export class CafesService {
       cafeApiUrl: cafe.cafeApiUrl || undefined,
       phone: cafe.phone || undefined,
       email: cafe.email || undefined,
-      occupancyMode: cafe.occupancyMode ?? 'PERCENT',
+      occupancyMode: (cafe.occupancyMode ?? 'PERCENT') as CafeOccupancyMode,
       createdAt: cafe.createdAt,
       updatedAt: cafe.updatedAt,
       openingHours: cafe.openingHours ?? undefined,

@@ -23,6 +23,7 @@ import { DocumentResponseDto } from './dto/document-response.dto';
 import { FileValidator } from '../storage/utils/file-validator';
 import { WorkersService } from '../workers/workers.service';
 import { CafeResponseDto } from '../cafes/dto/cafe-response.dto';
+import { CafeOccupancyMode } from '../../common/cafe/cafe-field-validators';
 import { BrandStatsDto } from './dto/brand-stats.dto';
 import { BrandReportDto } from './dto/brand-report.dto';
 import {
@@ -1412,7 +1413,7 @@ export class BrandsService {
           cafeApiUrl: cafe.cafeApiUrl || undefined,
           phone: cafe.phone || undefined,
           email: cafe.email || undefined,
-          occupancyMode: cafe.occupancyMode ?? 'PERCENT',
+          occupancyMode: (cafe.occupancyMode ?? 'PERCENT') as CafeOccupancyMode,
           totalCapacity,
           isOpenNow: isCafeOpenNow(cafe.openingHours),
           createdAt: cafe.createdAt,
