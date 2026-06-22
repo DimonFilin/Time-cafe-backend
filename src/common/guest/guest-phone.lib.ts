@@ -11,6 +11,18 @@ export function normalizeGuestPhone(raw: string): string | null {
   if (digits.startsWith('7') && digits.length === 11) {
     return `+${digits}`;
   }
+  if (digits.startsWith('80') && digits.length === 11) {
+    const local = digits.slice(2);
+    if (local.length === 9 && /^[29]/.test(local)) {
+      return `+375${local}`;
+    }
+  }
+  if (digits.length === 10 && digits.startsWith('0')) {
+    const local = digits.slice(1);
+    if (local.length === 9 && /^[29]/.test(local)) {
+      return `+375${local}`;
+    }
+  }
   if (digits.length === 9 && /^[29]/.test(digits)) {
     return `+375${digits}`;
   }

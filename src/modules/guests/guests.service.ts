@@ -177,12 +177,20 @@ export class GuestsService {
     accessCardNumber?: string,
     phone?: string,
   ): Promise<GuestRecord> {
-    if (!phone && !accessCardNumber) {
+    if (!phone?.trim() && !accessCardNumber?.trim()) {
       throw new BadRequestException('Укажите телефон или номер карты СКУД');
     }
     const or: Prisma.NetworkGuestWhereInput[] = [];
-    if (phone) or.push({ phone });
-    if (accessCardNumber) or.push({ accessCardNumber });
+    if (phone?.trim()) {
+      const normalized = normalizeGuestPhone(phone);
+      if (!normalized) {
+        throw new BadRequestException(guestPhoneValidationMessage());
+      }
+      or.push({ phone: normalized });
+    }
+    if (accessCardNumber?.trim()) {
+      or.push({ accessCardNumber: accessCardNumber.trim() });
+    }
     const guest = await this.prisma.networkGuest.findFirst({
       where: { OR: or },
       include: guestInclude,

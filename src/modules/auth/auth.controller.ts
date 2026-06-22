@@ -312,6 +312,27 @@ export class AuthController {
     return res as { url: string | null };
   }
 
+  @Get('me/avatar-file')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Stream current user avatar (mobile-friendly, no MinIO :9000)',
+    description:
+      'Returns avatar image bytes via API so clients on networks without direct storage access can load profile photos',
+  })
+  async streamMyAvatarFile(
+    @Request() req: { user?: { sub?: string } },
+    @Response({ passthrough: false }) res: ExpressResponse,
+  ) {
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) throw new UnauthorizedException('User not authenticated');
+
+    const { data, contentType } =
+      await this.authService.streamMyAvatarFile(keycloakId);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(data);
+  }
+
   @Post('change-password')
   @ApiBearerAuth('JWT-auth')
   @HttpCode(HttpStatus.OK)

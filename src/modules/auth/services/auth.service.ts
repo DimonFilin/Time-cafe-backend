@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
   Logger,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { KeycloakService } from './keycloak.service';
 import { UsersService } from '../../users/users.service';
@@ -716,6 +717,45 @@ export class AuthService {
       3600,
     );
     return { url: signed };
+  }
+
+  private parseAvatarStorageRef(
+    avatar: string,
+  ): { bucket: string; key: string } | null {
+    const trimmed = String(avatar || '').trim();
+    if (!trimmed) return null;
+
+    const buckets = this.storageService.getBuckets();
+    let bucket = buckets.users;
+    let key = '';
+
+    const directMatch = trimmed.match(/^(users|public|brands|cafes)\/(.+)$/);
+    if (directMatch) {
+      bucket = directMatch[1];
+      key = directMatch[2];
+    } else {
+      const urlMatch = trimmed.match(/\/(users|public|brands|cafes)\/(.+)$/);
+      if (urlMatch) {
+        bucket = urlMatch[1];
+        key = decodeURIComponent(urlMatch[2]);
+      }
+    }
+
+    if (!key) return null;
+    return { bucket, key };
+  }
+
+  async streamMyAvatarFile(keycloakId: string): Promise<{
+    data: Buffer;
+    contentType: string;
+  }> {
+    const user = await this.usersService.findByKeycloakId(keycloakId);
+    if (!user) throw new UnauthorizedException('User not found');
+
+    const ref = this.parseAvatarStorageRef(String(user.avatar || ''));
+    if (!ref) throw new NotFoundException('Avatar not found');
+
+    return this.storageService.getObjectBytes(ref.bucket, ref.key);
   }
 
   async changePassword(
