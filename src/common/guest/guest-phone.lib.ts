@@ -29,6 +29,11 @@ export function normalizeGuestPhone(raw: string): string | null {
   return null;
 }
 
+export function phoneDigitsOnly(raw: string): string {
+  const normalized = normalizeGuestPhone(raw);
+  return (normalized ?? raw).replace(/\D/g, '');
+}
+
 export function isValidGuestPhone(raw: string): boolean {
   return normalizeGuestPhone(raw) !== null;
 }

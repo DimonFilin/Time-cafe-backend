@@ -15,6 +15,7 @@ import { formatGuestDisplayName } from '../../common/guest/guest-display.lib';
 import {
   guestPhoneValidationMessage,
   normalizeGuestPhone,
+  phoneDigitsOnly,
 } from '../../common/guest/guest-phone.lib';
 import { resolveLoyaltyTierKey } from '../../common/guest/loyalty-tier-key.lib';
 import {
@@ -180,23 +181,36 @@ export class GuestsService {
     if (!phone?.trim() && !accessCardNumber?.trim()) {
       throw new BadRequestException('Укажите телефон или номер карты СКУД');
     }
-    const or: Prisma.NetworkGuestWhereInput[] = [];
+
+    if (accessCardNumber?.trim()) {
+      const byCard = await this.prisma.networkGuest.findFirst({
+        where: { accessCardNumber: accessCardNumber.trim() },
+        include: guestInclude,
+      });
+      if (byCard) return byCard;
+    }
+
     if (phone?.trim()) {
       const normalized = normalizeGuestPhone(phone);
       if (!normalized) {
         throw new BadRequestException(guestPhoneValidationMessage());
       }
-      or.push({ phone: normalized });
+      const digits = phoneDigitsOnly(normalized);
+      const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM network_guests
+        WHERE regexp_replace(phone, '[^0-9]', '', 'g') = ${digits}
+        LIMIT 1
+      `;
+      if (rows[0]?.id) {
+        const guest = await this.prisma.networkGuest.findUnique({
+          where: { id: rows[0].id },
+          include: guestInclude,
+        });
+        if (guest) return guest;
+      }
     }
-    if (accessCardNumber?.trim()) {
-      or.push({ accessCardNumber: accessCardNumber.trim() });
-    }
-    const guest = await this.prisma.networkGuest.findFirst({
-      where: { OR: or },
-      include: guestInclude,
-    });
-    if (!guest) throw new NotFoundException('Клиент не найден');
-    return guest;
+
+    throw new NotFoundException('Клиент не найден');
   }
 
   async lookup(
