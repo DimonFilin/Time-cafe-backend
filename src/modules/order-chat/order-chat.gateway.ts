@@ -61,6 +61,38 @@ export class OrderChatGateway
     }
   }
 
+  emitUnreadUpdate(
+    chatId: string,
+    actor: {
+      kind: 'user' | 'worker';
+      id: string;
+      brandId?: string | null;
+    },
+  ) {
+    if (actor.kind === 'user') {
+      this.server.to(`user:${actor.id}`).emit('chat:unread:update', { chatId });
+      return;
+    }
+    this.server.to(`worker:${actor.id}`).emit('chat:unread:update', { chatId });
+    if (actor.brandId) {
+      this.server
+        .to(`brand:${actor.brandId}`)
+        .emit('chat:list:update', { chatId });
+    }
+  }
+
+  private extractTcAccountId(client: Socket): string | null {
+    const cookieHeader = client.handshake.headers.cookie;
+    if (typeof cookieHeader !== 'string' || !cookieHeader.trim()) return null;
+    const cookies = cookieHeader.split(';').map((part) => part.trim());
+    const accountCookie = cookies.find((c) => c.startsWith('tc_account_id='));
+    if (!accountCookie) return null;
+    return (
+      decodeURIComponent(accountCookie.split('=').slice(1).join('=')).trim() ||
+      null
+    );
+  }
+
   private extractBearerToken(client: Socket): string | null {
     const authToken: unknown = client.handshake.auth?.token;
     if (typeof authToken === 'string' && authToken.trim()) {
@@ -95,30 +127,40 @@ export class OrderChatGateway
     }
   }
 
-  async handleConnection(client: Socket) {
+  private async resolveActorFromSocket(client: Socket) {
+    const accountId = this.extractTcAccountId(client);
+    if (accountId) {
+      return this.orderChatService.resolveActorByAccountId(accountId);
+    }
     const token = this.extractBearerToken(client);
     const keycloakId = token ? this.extractSubFromJwt(token) : null;
     if (!keycloakId) {
-      client.disconnect(true);
-      return;
+      throw new Error('Unauthorized');
     }
-    const actor =
-      await this.orderChatService.resolveActorByKeycloakId(keycloakId);
-    (client.data as SocketCtx).keycloakId = keycloakId;
-    (client.data as SocketCtx).actor = {
-      kind: actor.kind,
-      id: actor.id,
-      brandId: actor.kind === 'worker' ? actor.brandId : null,
-      role: actor.kind === 'worker' ? actor.role : undefined,
-    };
+    return this.orderChatService.resolveActorByKeycloakId(keycloakId);
+  }
 
-    if (actor.kind === 'user') {
-      await client.join(`user:${actor.id}`);
-    } else {
-      await client.join(`worker:${actor.id}`);
-      if (actor.brandId) {
-        await client.join(`brand:${actor.brandId}`);
+  async handleConnection(client: Socket) {
+    try {
+      const actor = await this.resolveActorFromSocket(client);
+      (client.data as SocketCtx).keycloakId = actor.keycloakId;
+      (client.data as SocketCtx).actor = {
+        kind: actor.kind,
+        id: actor.id,
+        brandId: actor.kind === 'worker' ? actor.brandId : null,
+        role: actor.kind === 'worker' ? actor.role : undefined,
+      };
+
+      if (actor.kind === 'user') {
+        await client.join(`user:${actor.id}`);
+      } else {
+        await client.join(`worker:${actor.id}`);
+        if (actor.brandId) {
+          await client.join(`brand:${actor.brandId}`);
+        }
       }
+    } catch {
+      client.disconnect(true);
     }
   }
 
@@ -137,10 +179,9 @@ export class OrderChatGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { chatId: string },
   ) {
-    const keycloakId = (client.data as SocketCtx).keycloakId;
-    if (!keycloakId) return { ok: false };
-    const actor =
-      await this.orderChatService.resolveActorByKeycloakId(keycloakId);
+    const actorCtx = (client.data as SocketCtx).actor;
+    if (!actorCtx) return { ok: false };
+    const actor = await this.resolveActorFromSocket(client);
     await this.orderChatService.getMessages(payload.chatId, actor, 1, 1);
     await client.join(`chat:${payload.chatId}`);
     (client.data as SocketCtx).chatId = payload.chatId;
@@ -162,10 +203,9 @@ export class OrderChatGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { chatId: string; dto: SendChatMessageDto },
   ) {
-    const keycloakId = (client.data as SocketCtx).keycloakId;
-    if (!keycloakId) return { ok: false };
-    const actor =
-      await this.orderChatService.resolveActorByKeycloakId(keycloakId);
+    const actorCtx = (client.data as SocketCtx).actor;
+    if (!actorCtx) return { ok: false };
+    const actor = await this.resolveActorFromSocket(client);
     const result = await this.orderChatService.sendMessage(
       payload.chatId,
       actor,
@@ -180,10 +220,9 @@ export class OrderChatGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { chatId: string; typing: boolean },
   ) {
-    const keycloakId = (client.data as SocketCtx).keycloakId;
-    if (!keycloakId) return { ok: false };
-    const actor =
-      await this.orderChatService.resolveActorByKeycloakId(keycloakId);
+    const actorCtx = (client.data as SocketCtx).actor;
+    if (!actorCtx) return { ok: false };
+    const actor = await this.resolveActorFromSocket(client);
     const typingState = await this.orderChatService.setTyping(
       payload.chatId,
       actor,

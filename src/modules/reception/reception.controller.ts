@@ -39,6 +39,7 @@ export class ReceptionController {
       this.staffCtx(req, query.cafeId),
       query.accessCardNumber,
       query.payload,
+      query.phone,
     );
   }
 

@@ -13,6 +13,13 @@ export class ReceptionScanQueryDto {
   payload?: string;
 
   @ApiPropertyOptional({
+    description: 'Guest phone when card QR is unavailable',
+  })
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @ApiPropertyOptional({
     description: 'Cafe scope (must match selected worker account)',
   })
   @IsOptional()

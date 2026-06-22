@@ -36,12 +36,11 @@ export class OrderChatController {
     private readonly orderChatGateway: OrderChatGateway,
   ) {}
 
-  private async actorFromReq(req: { user?: { sub?: string } }) {
-    const keycloakId = req.user?.sub;
-    if (!keycloakId) {
-      throw new BadRequestException('User ID not found in token');
-    }
-    return this.orderChatService.resolveActorByKeycloakId(keycloakId);
+  private async actorFromReq(req: {
+    headers?: { cookie?: string };
+    user?: { sub?: string };
+  }) {
+    return this.orderChatService.resolveActorFromRequest(req);
   }
 
   @Get()
@@ -147,15 +146,17 @@ export class OrderChatController {
   @Post(':chatId/messages/:id/read')
   @ApiOperation({ summary: 'Mark messages as read' })
   async markRead(
-    @Req() req: { user?: { sub?: string } },
+    @Req() req: { headers?: { cookie?: string }; user?: { sub?: string } },
     @Param('chatId') chatId: string,
     @Param('id') messageId: string,
     @Body() dto: MarkChatReadDto,
   ) {
     const actor = await this.actorFromReq(req);
-    return this.orderChatService.markRead(chatId, actor, {
+    const result = await this.orderChatService.markRead(chatId, actor, {
       messageId: dto.messageId || messageId,
     });
+    this.orderChatGateway.emitUnreadUpdate(chatId, actor);
+    return result;
   }
 
   @Patch(':chatId/settings')

@@ -32,6 +32,7 @@ import { GuestWalletModule } from './modules/guest-wallet/guest-wallet.module';
 import { ReceptionModule } from './modules/reception/reception.module';
 import { DevSeedModule } from './modules/dev-seed/dev-seed.module';
 import { PushNotificationModule } from './common/notifications/push-notification.module';
+import { CafeRealtimeModule } from './modules/cafe-realtime/cafe-realtime.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { PushNotificationModule } from './common/notifications/push-notification
     GuestWalletModule,
     ReceptionModule,
     DevSeedModule,
+    CafeRealtimeModule,
   ],
   controllers: [AppController],
   providers: [AppService],

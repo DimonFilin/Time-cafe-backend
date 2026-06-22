@@ -161,6 +161,66 @@ export class OrderChatService {
     throw new ForbiddenException('Account not found');
   }
 
+  parseTcAccountIdFromCookie(cookieHeader?: string): string | undefined {
+    if (!cookieHeader || typeof cookieHeader !== 'string') return undefined;
+    const part = cookieHeader
+      .split(';')
+      .map((c) => c.trim())
+      .find((c) => c.startsWith('tc_account_id='));
+    const raw = part?.split('=').slice(1).join('=');
+    return raw ? decodeURIComponent(raw).trim() : undefined;
+  }
+
+  async resolveActorByAccountId(accountId: string): Promise<Actor> {
+    const worker = await this.prisma.workerAccount.findFirst({
+      where: { id: accountId, deletedAt: null },
+      select: {
+        id: true,
+        keycloakId: true,
+        email: true,
+        role: true,
+        cafeId: true,
+        brandId: true,
+      },
+    });
+    if (worker) {
+      return {
+        kind: 'worker',
+        id: worker.id,
+        keycloakId: worker.keycloakId,
+        email: worker.email,
+        role: worker.role,
+        cafeId: worker.cafeId,
+        brandId: worker.brandId,
+      };
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { id: accountId, deletedAt: null },
+      select: { id: true, keycloakId: true },
+    });
+    if (user) {
+      return { kind: 'user', id: user.id, keycloakId: user.keycloakId };
+    }
+
+    throw new ForbiddenException('Account not found');
+  }
+
+  async resolveActorFromRequest(req: {
+    headers?: { cookie?: string };
+    user?: { sub?: string };
+  }): Promise<Actor> {
+    const accountId = this.parseTcAccountIdFromCookie(req.headers?.cookie);
+    if (accountId) {
+      return this.resolveActorByAccountId(accountId);
+    }
+    const keycloakId = req.user?.sub;
+    if (!keycloakId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+    return this.resolveActorByKeycloakId(keycloakId);
+  }
+
   private async ensureChatAccess(chatId: string, actor: Actor) {
     const chat = await this.prisma.orderChat.findUnique({
       where: { id: chatId },

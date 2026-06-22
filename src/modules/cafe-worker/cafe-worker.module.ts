@@ -5,9 +5,16 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 import { KeycloakModule } from '../auth/keycloak.module';
 import { StorageModule } from '../storage/storage.module';
+import { CafeRealtimeModule } from '../cafe-realtime/cafe-realtime.module';
 
 @Module({
-  imports: [PrismaModule, ActivityLogsModule, KeycloakModule, StorageModule],
+  imports: [
+    PrismaModule,
+    ActivityLogsModule,
+    KeycloakModule,
+    StorageModule,
+    CafeRealtimeModule,
+  ],
   controllers: [CafeWorkerController],
   providers: [CafeWorkerService],
   exports: [CafeWorkerService],

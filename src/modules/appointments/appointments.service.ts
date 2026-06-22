@@ -24,6 +24,7 @@ import {
   ActivityCategory,
 } from '@prisma/client';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { CafeRealtimeGateway } from '../cafe-realtime/cafe-realtime.gateway';
 import {
   billingModesAvailable,
   calculateRoomBookingPrice,
@@ -42,7 +43,19 @@ export class AppointmentsService {
     private readonly balanceService: BalanceService,
     private readonly transactionsService: TransactionsService,
     private readonly activityLogsService: ActivityLogsService,
+    private readonly cafeRealtime: CafeRealtimeGateway,
   ) {}
+
+  private publishAppointmentUpdate(
+    cafeId: string,
+    appointment: AppointmentResponseDto,
+  ) {
+    try {
+      this.cafeRealtime.emitAppointmentUpdated(cafeId, appointment);
+    } catch (error) {
+      this.logger.warn(`Failed to emit appointment update: ${String(error)}`);
+    }
+  }
 
   private async logCafeStaffAppointment(
     keycloakId: string,
@@ -377,7 +390,9 @@ export class AppointmentsService {
       `Appointment created: ${appointment.id} for user ${user.id} at cafe ${cafe.name}`,
     );
 
-    return this.mapToResponseDto(appointment);
+    const created = this.mapToResponseDto(appointment);
+    this.publishAppointmentUpdate(createDto.cafeId, created);
+    return created;
   }
 
   /**
@@ -559,7 +574,9 @@ export class AppointmentsService {
 
     this.logger.log(`Appointment updated: ${appointmentId}`);
 
-    return this.mapToResponseDto(updatedAppointment);
+    const updated = this.mapToResponseDto(updatedAppointment);
+    this.publishAppointmentUpdate(updatedAppointment.cafeId, updated);
+    return updated;
   }
 
   /**
@@ -648,7 +665,9 @@ export class AppointmentsService {
 
     this.logger.log(`Appointment cancelled: ${appointmentId}`);
 
-    return this.mapToResponseDto(updatedAppointment);
+    const cancelled = this.mapToResponseDto(updatedAppointment);
+    this.publishAppointmentUpdate(updatedAppointment.cafeId, cancelled);
+    return cancelled;
   }
 
   /**
@@ -829,7 +848,9 @@ export class AppointmentsService {
       details: { status: 'confirmed', cafeId: appointment.cafeId },
     });
 
-    return this.mapToResponseDto(updatedAppointment);
+    const confirmed = this.mapToResponseDto(updatedAppointment);
+    this.publishAppointmentUpdate(appointment.cafeId, confirmed);
+    return confirmed;
   }
 
   /**
@@ -878,7 +899,9 @@ export class AppointmentsService {
       details: { status: 'completed', cafeId: appointment.cafeId },
     });
 
-    return this.mapToResponseDto(updatedAppointment);
+    const checkedIn = this.mapToResponseDto(updatedAppointment);
+    this.publishAppointmentUpdate(appointment.cafeId, checkedIn);
+    return checkedIn;
   }
 
   /**
@@ -934,7 +957,9 @@ export class AppointmentsService {
       details: { status: 'cancelled', cafeId: appointment.cafeId },
     });
 
-    return this.mapToResponseDto(updatedAppointment);
+    const cancelledByCafe = this.mapToResponseDto(updatedAppointment);
+    this.publishAppointmentUpdate(appointment.cafeId, cancelledByCafe);
+    return cancelledByCafe;
   }
 
   /**

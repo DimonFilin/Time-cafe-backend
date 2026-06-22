@@ -7,6 +7,7 @@ import { WorkersModule } from '../workers/workers.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { KeycloakModule } from '../auth/keycloak.module';
 import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
+import { CafeRealtimeModule } from '../cafe-realtime/cafe-realtime.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
     PaymentsModule,
     KeycloakModule,
     ActivityLogsModule,
+    CafeRealtimeModule,
   ],
   controllers: [AppointmentsController],
   providers: [AppointmentsService],

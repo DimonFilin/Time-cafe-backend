@@ -12,6 +12,7 @@ import { UpdateWorkerProfileDto } from './dto/update-worker-profile.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OrderStatus, LogSeverity } from '@prisma/client';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { CafeRealtimeGateway } from '../cafe-realtime/cafe-realtime.gateway';
 import {
   parseWorkerShiftSchedule,
   isWeeklyShiftScheduleEmpty,
@@ -29,6 +30,7 @@ export class CafeWorkerService {
     private prisma: PrismaService,
     private activityLogsService: ActivityLogsService,
     private storageService: StorageService,
+    private cafeRealtime: CafeRealtimeGateway,
   ) {}
 
   private parseStorageRef(
@@ -275,7 +277,7 @@ export class CafeWorkerService {
       throw new ForbiddenException('Order cannot be confirmed');
     }
 
-    return this.prisma.order.update({
+    const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         status: 'CONFIRMED',
@@ -293,6 +295,8 @@ export class CafeWorkerService {
         items: true,
       },
     });
+    this.cafeRealtime.emitOrderUpdated(cafeId, updated);
+    return updated;
   }
 
   // Завершить заказ
@@ -312,7 +316,7 @@ export class CafeWorkerService {
       throw new ForbiddenException('Order cannot be completed');
     }
 
-    return this.prisma.order.update({
+    const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         status: 'COMPLETED',
@@ -330,6 +334,8 @@ export class CafeWorkerService {
         items: true,
       },
     });
+    this.cafeRealtime.emitOrderUpdated(cafeId, updated);
+    return updated;
   }
 
   // Отменить заказ
@@ -349,7 +355,7 @@ export class CafeWorkerService {
       throw new ForbiddenException('Order cannot be cancelled');
     }
 
-    return this.prisma.order.update({
+    const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         status: 'CANCELLED',
@@ -368,6 +374,8 @@ export class CafeWorkerService {
         items: true,
       },
     });
+    this.cafeRealtime.emitOrderUpdated(cafeId, updated);
+    return updated;
   }
 
   async getMySchedule(workerId: string) {

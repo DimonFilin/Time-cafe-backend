@@ -6,6 +6,7 @@ import { UsersModule } from '../users/users.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { WorkersModule } from '../workers/workers.module';
 import { KeycloakModule } from '../auth/keycloak.module';
+import { CafeRealtimeModule } from '../cafe-realtime/cafe-realtime.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { KeycloakModule } from '../auth/keycloak.module';
     PaymentsModule,
     WorkersModule,
     KeycloakModule,
+    CafeRealtimeModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService],

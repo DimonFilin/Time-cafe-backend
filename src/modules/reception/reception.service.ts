@@ -121,6 +121,7 @@ export class ReceptionService {
     },
     accessCardNumber?: string,
     payload?: string,
+    phone?: string,
   ) {
     let card = accessCardNumber?.trim();
     if (!card && payload) {
@@ -128,7 +129,7 @@ export class ReceptionService {
     }
     const guestRecord = await this.guestsService.lookupByCardOrPhone(
       card,
-      undefined,
+      phone?.trim(),
     );
     const cafeId = await this.resolveWorkerCafeId(ctx);
     const appointmentsToday = await this.findTodayAppointments(

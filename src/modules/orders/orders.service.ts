@@ -21,6 +21,7 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { UsersService } from '../users/users.service';
 import { TransactionsService } from '../payments/services/transactions.service';
 import { WorkersService } from '../workers/workers.service';
+import { CafeRealtimeGateway } from '../cafe-realtime/cafe-realtime.gateway';
 
 @Injectable()
 export class OrdersService {
@@ -31,7 +32,16 @@ export class OrdersService {
     private readonly usersService: UsersService,
     private readonly transactionsService: TransactionsService,
     private readonly workersService: WorkersService,
+    private readonly cafeRealtime: CafeRealtimeGateway,
   ) {}
+
+  private publishOrderUpdate(cafeId: string, order: OrderResponseDto) {
+    try {
+      this.cafeRealtime.emitOrderUpdated(cafeId, order);
+    } catch (error) {
+      this.logger.warn(`Failed to emit order update: ${String(error)}`);
+    }
+  }
 
   /**
    * Generate unique order number
@@ -241,11 +251,15 @@ export class OrdersService {
           cafe: { select: { name: true } },
         },
       });
-      return this.mapToResponseDto(updatedOrder || order);
+      const result = this.mapToResponseDto(updatedOrder || order);
+      this.publishOrderUpdate(createOrderDto.cafeId, result);
+      return result;
     }
     // For CASH payment, order remains PENDING until payment is made
 
-    return this.mapToResponseDto(order);
+    const result = this.mapToResponseDto(order);
+    this.publishOrderUpdate(createOrderDto.cafeId, result);
+    return result;
   }
 
   /**
@@ -535,7 +549,9 @@ export class OrdersService {
       }
     }
 
-    return this.mapToResponseDto(updatedOrder);
+    const result = this.mapToResponseDto(updatedOrder);
+    this.publishOrderUpdate(order.cafeId, result);
+    return result;
   }
 
   /**
@@ -645,7 +661,9 @@ export class OrdersService {
       }
     }
 
-    return this.mapToResponseDto(updatedOrder);
+    const result = this.mapToResponseDto(updatedOrder);
+    this.publishOrderUpdate(order.cafeId, result);
+    return result;
   }
 
   /**
