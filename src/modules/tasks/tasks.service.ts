@@ -22,6 +22,7 @@ import {
   ActivityAction,
   ActivityCategory,
   Prisma,
+  WorkerRole,
 } from '@prisma/client';
 
 interface TaskTemplateWithRelations extends TaskTemplate {
@@ -371,6 +372,7 @@ export class TasksService {
     workerId: string,
     cafeId: string,
     date: string, // YYYY-MM-DD
+    options?: { skipActivityLog?: boolean },
   ): Promise<WorkerTasksResponseDto> {
     const targetDate = parseDateYmd(date);
     const dayOfWeek = dayOfWeekIso(date);
@@ -456,15 +458,17 @@ export class TasksService {
 
     const completedCount = tasks.filter((t) => t.completed).length;
 
-    await this.logActivity(
-      workerId,
-      'VIEW_LIST',
-      'TASK',
-      cafeId,
-      cafeId,
-      { date, totalCount: tasks.length },
-      ActivityCategory.VIEW,
-    );
+    if (!options?.skipActivityLog) {
+      await this.logActivity(
+        workerId,
+        'VIEW_LIST',
+        'TASK',
+        cafeId,
+        cafeId,
+        { date, totalCount: tasks.length },
+        ActivityCategory.VIEW,
+      );
+    }
 
     return {
       tasks,
@@ -472,6 +476,30 @@ export class TasksService {
       totalCount: tasks.length,
       date,
     };
+  }
+
+  async getCafeDailyTaskSummary(
+    cafeId: string,
+    date: string,
+  ): Promise<{ totalTasks: number; completedTasks: number }> {
+    const workers = await this.prisma.workerAccount.findMany({
+      where: { cafeId, deletedAt: null, role: WorkerRole.WORKER },
+      select: { id: true },
+    });
+
+    const summaries = await Promise.all(
+      workers.map((worker) =>
+        this.getWorkerTasks(worker.id, cafeId, date, { skipActivityLog: true }),
+      ),
+    );
+
+    return summaries.reduce(
+      (acc, summary) => ({
+        totalTasks: acc.totalTasks + summary.totalCount,
+        completedTasks: acc.completedTasks + summary.completedCount,
+      }),
+      { totalTasks: 0, completedTasks: 0 },
+    );
   }
 
   async completeTask(

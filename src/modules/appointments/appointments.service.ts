@@ -315,6 +315,15 @@ export class AppointmentsService {
       billing,
     );
 
+    if (totalAmount <= 0) {
+      throw new BadRequestException(
+        'Room billing is not configured for this room',
+      );
+    }
+    if (createDto.paymentMethod === 'FREE') {
+      throw new BadRequestException('Free booking is not allowed');
+    }
+
     // Handle payment if required
     let transactionId: string | undefined;
 

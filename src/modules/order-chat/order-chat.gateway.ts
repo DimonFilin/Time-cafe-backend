@@ -38,11 +38,41 @@ export class OrderChatGateway
 
   constructor(private readonly orderChatService: OrderChatService) {}
 
+  emitChatListUpdate(
+    chatId: string,
+    routing: {
+      userId: string;
+      workerIds: string[];
+      brandId: string | null;
+      cafeId: string;
+    },
+  ) {
+    this.server
+      .to(`user:${routing.userId}`)
+      .emit('chat:list:update', { chatId });
+    routing.workerIds.forEach((workerId) => {
+      this.server.to(`worker:${workerId}`).emit('chat:list:update', { chatId });
+    });
+    this.server
+      .to(`cafe:${routing.cafeId}`)
+      .emit('chat:list:update', { chatId });
+    if (routing.brandId) {
+      this.server
+        .to(`brand:${routing.brandId}`)
+        .emit('chat:list:update', { chatId });
+    }
+  }
+
   emitMessageCreated(
     chatId: string,
     payload: {
       message: unknown;
-      routing: { userId: string; workerIds: string[]; brandId: string | null };
+      routing: {
+        userId: string;
+        workerIds: string[];
+        brandId: string | null;
+        cafeId: string;
+      };
     },
   ) {
     this.server.to(`chat:${chatId}`).emit('chat:message:new', payload.message);
@@ -54,11 +84,7 @@ export class OrderChatGateway
         .to(`worker:${workerId}`)
         .emit('chat:unread:update', { chatId });
     });
-    if (payload.routing.brandId) {
-      this.server
-        .to(`brand:${payload.routing.brandId}`)
-        .emit('chat:list:update', { chatId });
-    }
+    this.emitChatListUpdate(chatId, payload.routing);
   }
 
   emitUnreadUpdate(
@@ -74,11 +100,6 @@ export class OrderChatGateway
       return;
     }
     this.server.to(`worker:${actor.id}`).emit('chat:unread:update', { chatId });
-    if (actor.brandId) {
-      this.server
-        .to(`brand:${actor.brandId}`)
-        .emit('chat:list:update', { chatId });
-    }
   }
 
   private extractTcAccountId(client: Socket): string | null {
@@ -157,6 +178,9 @@ export class OrderChatGateway
         await client.join(`worker:${actor.id}`);
         if (actor.brandId) {
           await client.join(`brand:${actor.brandId}`);
+        }
+        if (actor.cafeId) {
+          await client.join(`cafe:${actor.cafeId}`);
         }
       }
     } catch {

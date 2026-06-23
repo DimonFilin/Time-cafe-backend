@@ -60,7 +60,17 @@ export class OrderChatController {
     @Param('orderId') orderId: string,
   ) {
     const actor = await this.actorFromReq(req);
-    return this.orderChatService.getOrCreateByOrder(orderId, actor);
+    const result = await this.orderChatService.getOrCreateByOrder(
+      orderId,
+      actor,
+    );
+    if (result.created && result.listRouting) {
+      this.orderChatGateway.emitChatListUpdate(
+        result.listRouting.chatId,
+        result.listRouting,
+      );
+    }
+    return result.summary;
   }
 
   @Get(':chatId/messages')

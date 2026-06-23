@@ -484,6 +484,7 @@ export class OrderChatService {
         },
       },
     });
+    let created = false;
     if (!chat) {
       try {
         chat = await this.prisma.orderChat.create({
@@ -501,6 +502,7 @@ export class OrderChatService {
             },
           },
         });
+        created = true;
       } catch (error) {
         // Race-safe get-or-create: if another request created chat concurrently, fetch it.
         if (
@@ -531,7 +533,7 @@ export class OrderChatService {
       resourceId: chat.id,
       details: { orderId: order.id },
     });
-    return {
+    const summary = {
       id: chat.id,
       orderId: chat.orderId,
       cafeId: chat.cafeId,
@@ -575,6 +577,23 @@ export class OrderChatService {
       lastMessage: chat.messages[0]
         ? await this.toMessageDto(chat.messages[0])
         : null,
+    };
+
+    if (!created) {
+      return { summary, created: false as const };
+    }
+
+    const workerIds = await this.resolveWorkerRecipients(chat);
+    return {
+      summary,
+      created: true as const,
+      listRouting: {
+        chatId: chat.id,
+        cafeId: chat.cafeId,
+        brandId: chat.brandId,
+        userId: chat.userId,
+        workerIds,
+      },
     };
   }
 
@@ -625,6 +644,15 @@ export class OrderChatService {
 
     const readWhere =
       actor.kind === 'user' ? { userId: actor.id } : { workerId: actor.id };
+
+    if (query.unreadOnly === 'true') {
+      where.readStates = {
+        some: {
+          ...readWhere,
+          unreadCount: { gt: 0 },
+        },
+      };
+    }
 
     const [items, total] = await Promise.all([
       this.prisma.orderChat.findMany({
@@ -739,9 +767,7 @@ export class OrderChatService {
         };
       }),
     );
-    const filtered = mapped.filter((chat) =>
-      query.unreadOnly === 'true' ? chat.unreadCount > 0 : true,
-    );
+    const resultItems = mapped;
 
     await this.logWorkerActivity(actor, {
       action: ActivityAction.VIEW_LIST,
@@ -757,7 +783,7 @@ export class OrderChatService {
     });
 
     return {
-      items: filtered,
+      items: resultItems,
       total,
       page,
       limit,
@@ -919,6 +945,7 @@ export class OrderChatService {
         userId: chat.userId,
         workerIds: recipientWorkerIds,
         brandId: chat.brandId,
+        cafeId: chat.cafeId,
       },
     };
   }

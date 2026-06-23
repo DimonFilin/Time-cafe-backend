@@ -22,7 +22,9 @@ import { AuthGuard, Unprotected } from 'nest-keycloak-connect';
 import { CafeAdminService } from './cafe-admin.service';
 import { CafeAdminWorkersService } from './services/cafe-admin-workers.service';
 import { CafeAdminCafeService } from './services/cafe-admin-cafe.service';
+import { CafeAdminOverviewService } from './services/cafe-admin-overview.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { CafeOverviewStatsDto } from './dto/cafe-overview-stats.dto';
 import { InviteWorkerDto } from './dto/invite-worker.dto';
 import { UpdateWorkerDto } from './dto/update-worker.dto';
 import { UpdateCafeDto } from './dto/update-cafe.dto';
@@ -139,6 +141,7 @@ export class CafeAdminController {
     private readonly cafeAdminService: CafeAdminService,
     private readonly workersService: CafeAdminWorkersService,
     private readonly cafeService: CafeAdminCafeService,
+    private readonly overviewService: CafeAdminOverviewService,
     private readonly activityLogsService: ActivityLogsService,
   ) {}
 
@@ -405,6 +408,21 @@ export class CafeAdminController {
   ) {
     const { cafeId } = await this.enrichRequest(req);
     return this.workersService.deleteWorker(cafeId, workerId);
+  }
+
+  // ============================================
+  // Overview
+  // ============================================
+
+  @Get('overview/stats')
+  @ApiOperation({ summary: 'Get cafe overview statistics for dashboard' })
+  @ApiResponse({ status: 200, type: CafeOverviewStatsDto })
+  async getOverviewStats(
+    @Request() req: CafeAdminRequest,
+    @Query('date') date?: string,
+  ): Promise<CafeOverviewStatsDto> {
+    const { cafeId } = await this.enrichRequest(req);
+    return this.overviewService.getOverviewStats(cafeId, date);
   }
 
   // ============================================
