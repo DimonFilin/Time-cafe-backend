@@ -17,3 +17,15 @@ export function formatGuestDisplayName(guest: {
 
   return [first, pat].filter(Boolean).join(' ') || '—';
 }
+
+/** Full name for SCUD card on mobile (not initials). */
+export function formatGuestCardName(guest: {
+  lastName?: string | null;
+  firstName: string;
+  patronymic?: string | null;
+}): string {
+  const last = (guest.lastName ?? '').trim();
+  const first = (guest.firstName ?? '').trim();
+  const pat = (guest.patronymic ?? '').trim();
+  return [last, first, pat].filter(Boolean).join(' ') || '—';
+}

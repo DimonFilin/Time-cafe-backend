@@ -11,7 +11,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { WorkersService } from '../workers/workers.service';
 import { PushNotificationService } from '../../common/notifications/push-notification.service';
 import { LoyaltyService } from '../loyalty/loyalty.service';
-import { formatGuestDisplayName } from '../../common/guest/guest-display.lib';
+import {
+  formatGuestCardName,
+  formatGuestDisplayName,
+} from '../../common/guest/guest-display.lib';
 import {
   guestPhoneValidationMessage,
   normalizeGuestPhone,
@@ -447,16 +450,35 @@ export class GuestsService {
     });
   }
 
+  private guestForUserInclude = {
+    loyaltyTier: true,
+    pendingBonuses: {
+      where: { status: 'SCHEDULED' as const },
+      orderBy: { scheduledAt: 'asc' as const },
+    },
+  };
+
+  private async syncGuestNamesFromUser(
+    guest: { id: string; firstName: string; lastName: string | null },
+    user: { firstName: string; lastName: string },
+  ) {
+    const firstName = user.firstName?.trim();
+    const lastName = user.lastName?.trim();
+    const patch: { firstName?: string; lastName?: string } = {};
+    if (firstName && firstName !== guest.firstName) patch.firstName = firstName;
+    if (lastName && lastName !== guest.lastName) patch.lastName = lastName;
+    if (Object.keys(patch).length === 0) return guest;
+    return this.prisma.networkGuest.update({
+      where: { id: guest.id },
+      data: patch,
+      include: this.guestForUserInclude,
+    });
+  }
+
   async getByUserId(userId: string) {
     return this.prisma.networkGuest.findUnique({
       where: { userId },
-      include: {
-        loyaltyTier: true,
-        pendingBonuses: {
-          where: { status: 'SCHEDULED' },
-          orderBy: { scheduledAt: 'asc' },
-        },
-      },
+      include: this.guestForUserInclude,
     });
   }
 
@@ -468,10 +490,10 @@ export class GuestsService {
     email: string;
   }) {
     const linked = await this.getByUserId(user.id);
-    if (linked) return linked;
+    if (linked) return this.syncGuestNamesFromUser(linked, user);
     if (user.phone) {
       const byPhone = await this.linkUserByPhone(user.id, user.phone);
-      if (byPhone) return byPhone;
+      if (byPhone) return this.syncGuestNamesFromUser(byPhone, user);
     }
     const defaultTier = await this.loyaltyService.getDefaultTier();
     return this.prisma.networkGuest.create({
@@ -519,7 +541,7 @@ export class GuestsService {
       firstName: guest.firstName,
       lastName: guest.lastName,
       patronymic: guest.patronymic,
-      displayName: formatGuestDisplayName(guest),
+      displayName: formatGuestCardName(guest),
       phoneVerified: !!guest.phoneVerifiedAt,
       canShowQr,
       qrPayload:
