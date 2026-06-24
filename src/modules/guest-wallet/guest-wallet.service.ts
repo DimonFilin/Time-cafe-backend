@@ -407,4 +407,123 @@ export class GuestWalletService {
       });
     });
   }
+
+  async chargeDepositForBooking(params: {
+    userId: string;
+    cafeId: string;
+    amount: number;
+    referenceId?: string;
+  }): Promise<string> {
+    const guest = await this.prisma.networkGuest.findFirst({
+      where: { userId: params.userId },
+    });
+    if (!guest) {
+      throw new BadRequestException('Гостевой профиль не найден');
+    }
+    const amount = params.amount;
+    if (!(amount > 0)) {
+      throw new BadRequestException('Invalid amount');
+    }
+    const deposit = toNumber(guest.depositBalance);
+    if (deposit < amount) {
+      throw new BadRequestException('Недостаточно средств на депозите');
+    }
+
+    const brandCtx = await this.resolveBrandContext(params.cafeId);
+    const debt = toNumber(guest.debt);
+    const depositAfter = deposit - amount;
+
+    const ledger = await this.prisma.$transaction(async (tx) => {
+      await tx.networkGuest.update({
+        where: { id: guest.id },
+        data: { depositBalance: depositAfter },
+      });
+      return tx.walletLedgerEntry.create({
+        data: {
+          guestId: guest.id,
+          brandId: brandCtx.brandId,
+          cafeId: params.cafeId,
+          type: WalletEntryType.VISIT_CHARGE,
+          amount,
+          depositAfter,
+          debtAfter: debt,
+          referenceId: params.referenceId,
+          meta: { kind: 'appointment' },
+        },
+      });
+    });
+    return ledger.id;
+  }
+
+  async refundDepositCharge(params: {
+    userId: string;
+    ledgerEntryId: string;
+    amount: number;
+  }): Promise<void> {
+    const guest = await this.prisma.networkGuest.findFirst({
+      where: { userId: params.userId },
+    });
+    if (!guest) {
+      throw new NotFoundException('Guest not found');
+    }
+
+    const charge = await this.prisma.walletLedgerEntry.findFirst({
+      where: {
+        id: params.ledgerEntryId,
+        guestId: guest.id,
+        type: WalletEntryType.VISIT_CHARGE,
+      },
+    });
+    if (!charge) {
+      throw new NotFoundException('Deposit charge not found');
+    }
+
+    const existingRefund = await this.prisma.walletLedgerEntry.findFirst({
+      where: {
+        guestId: guest.id,
+        type: WalletEntryType.REFUND,
+        referenceId: charge.id,
+      },
+    });
+    if (existingRefund) return;
+
+    const amount = params.amount;
+    const fresh = await this.prisma.networkGuest.findUnique({
+      where: { id: guest.id },
+    });
+    if (!fresh) return;
+
+    const deposit = toNumber(fresh.depositBalance) + amount;
+    const debt = toNumber(fresh.debt);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.networkGuest.update({
+        where: { id: guest.id },
+        data: { depositBalance: deposit },
+      });
+      await tx.walletLedgerEntry.create({
+        data: {
+          guestId: guest.id,
+          brandId: charge.brandId,
+          cafeId: charge.cafeId,
+          type: WalletEntryType.REFUND,
+          amount,
+          depositAfter: deposit,
+          debtAfter: debt,
+          referenceId: charge.id,
+          meta: { kind: 'appointment_refund' },
+        },
+      });
+    });
+  }
+
+  async linkDepositChargeReference(
+    ledgerEntryId: string,
+    referenceId: string,
+  ): Promise<void> {
+    await this.prisma.walletLedgerEntry.updateMany({
+      where: { id: ledgerEntryId, referenceId: null },
+      data: { referenceId },
+    });
+  }
 }

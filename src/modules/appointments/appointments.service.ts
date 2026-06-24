@@ -9,8 +9,8 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { WorkersService } from '../workers/workers.service';
-import { BalanceService } from '../payments/services/balance.service';
 import { TransactionsService } from '../payments/services/transactions.service';
+import { GuestWalletService } from '../guest-wallet/guest-wallet.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { CancelAppointmentDto } from './dto/cancel-appointment.dto';
@@ -40,8 +40,8 @@ export class AppointmentsService {
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
     private readonly workersService: WorkersService,
-    private readonly balanceService: BalanceService,
     private readonly transactionsService: TransactionsService,
+    private readonly guestWalletService: GuestWalletService,
     private readonly activityLogsService: ActivityLogsService,
     private readonly cafeRealtime: CafeRealtimeGateway,
   ) {}
@@ -333,7 +333,11 @@ export class AppointmentsService {
       }
 
       if (createDto.paymentMethod === 'BALANCE') {
-        await this.balanceService.deductFromBalance(user.id, totalAmount);
+        transactionId = await this.guestWalletService.chargeDepositForBooking({
+          userId: user.id,
+          cafeId: createDto.cafeId,
+          amount: totalAmount,
+        });
       } else if (createDto.paymentMethod === 'CARD' && createDto.cardId) {
         // Create payment transaction
         const transaction = await this.transactionsService.createPayment(
@@ -385,6 +389,13 @@ export class AppointmentsService {
         },
       },
     });
+
+    if (createDto.paymentMethod === 'BALANCE' && transactionId) {
+      await this.guestWalletService.linkDepositChargeReference(
+        transactionId,
+        appointment.id,
+      );
+    }
 
     await this.reserveSharedAssetsForAppointment({
       appointmentId: appointment.id,
@@ -630,16 +641,19 @@ export class AppointmentsService {
     if (
       appointment.totalAmount &&
       Number(appointment.totalAmount) > 0 &&
-      appointment.transactionId &&
       appointment.paymentMethod !== 'CASH'
     ) {
       try {
-        if (appointment.paymentMethod === 'BALANCE') {
-          await this.balanceService.addToBalance(
-            user.id,
-            Number(appointment.totalAmount),
-          );
-        } else {
+        if (
+          appointment.paymentMethod === 'BALANCE' &&
+          appointment.transactionId
+        ) {
+          await this.guestWalletService.refundDepositCharge({
+            userId: user.id,
+            ledgerEntryId: appointment.transactionId,
+            amount: Number(appointment.totalAmount),
+          });
+        } else if (appointment.transactionId) {
           // Refund to card
           await this.transactionsService.createRefund(
             user.id,

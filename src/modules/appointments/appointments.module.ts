@@ -8,6 +8,7 @@ import { PaymentsModule } from '../payments/payments.module';
 import { KeycloakModule } from '../auth/keycloak.module';
 import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 import { CafeRealtimeModule } from '../cafe-realtime/cafe-realtime.module';
+import { GuestWalletModule } from '../guest-wallet/guest-wallet.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { CafeRealtimeModule } from '../cafe-realtime/cafe-realtime.module';
     KeycloakModule,
     ActivityLogsModule,
     CafeRealtimeModule,
+    GuestWalletModule,
   ],
   controllers: [AppointmentsController],
   providers: [AppointmentsService],
